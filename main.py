@@ -25,7 +25,7 @@ MAX_ANIMALS = 8
 MAX_BIRDS = 8
 MAX_PLANES = 3
 MAX_SUNBIRDS = 4
-MAX_NPCS = 6
+MAX_NPCS = 8
 MAX_PROJECTILES = 40
 MAX_STRUCTURES = 8
 MAX_DROPPED_ITEMS = 80
@@ -35,15 +35,17 @@ ANIMAL_SPAWN_INTERVAL = 360
 BIRD_SPAWN_INTERVAL = 210
 PLANE_SPAWN_INTERVAL = 900
 SUNBIRD_SPAWN_INTERVAL = 520
-HOUSE_SPAWN_INTERVAL = 1200
+HOUSE_SPAWN_INTERVAL = 3000
 WANDER_NPC_SPAWN_INTERVAL = 700
 CAVE_MOB_SPAWN_INTERVAL = 240
+BOSS_SPAWN_INTERVAL = 3600
 
 mouse_x, mouse_y = 0, 0     
 is_mining, mine_target_abs_x, mine_target_abs_y, mining_progress, mining_required_time = False, -1, -1, 0, 20
 particles = []
 
-hp, hunger, selected_slot = 10, 10, 0   
+hp, hunger, selected_slot = 10, 10, 0
+player_level, player_xp, money = 1, 0, 0
 inventory = [{"id": 0, "count": 0} for _ in range(36)]
 inventory[0] = {"id": 41, "count": 1}
 inventory[1] = {"id": 40, "count": 32}
@@ -101,6 +103,27 @@ FOOD_VALUES = {
     50: {"hp": 2, "hunger": 3},
     51: {"hp": 3, "hunger": 4},
 }
+MOB_REWARDS = {
+    "zombie": {"xp": 4, "money": 3},
+    "skeleton": {"xp": 5, "money": 4},
+    "slime": {"xp": 4, "money": 2},
+    "green_jet": {"xp": 7, "money": 6},
+    "cave_zombie": {"xp": 6, "money": 5},
+    "cave_spider": {"xp": 7, "money": 5},
+    "crystal_wisp": {"xp": 9, "money": 8},
+    "ancient_boss": {"xp": 80, "money": 120},
+}
+TRADER_UNLOCK_LEVEL = 5
+BOSS_UNLOCK_LEVEL = 20
+TRADER_TRADES = [
+    {"name": "Iron Sword", "result": {"id": 21, "count": 1}, "money": 18, "xp": 0, "ores": {}, "desc": "Reliable melee weapon"},
+    {"name": "Iron Pickaxe", "result": {"id": 19, "count": 1}, "money": 16, "xp": 4, "ores": {}, "desc": "Faster stone and ore mining"},
+    {"name": "Iron Rifle", "result": {"id": 42, "count": 1}, "money": 34, "xp": 8, "ores": {}, "desc": "Stronger ranged weapon"},
+    {"name": "Bullet Bundle", "result": {"id": 40, "count": 32}, "money": 7, "xp": 0, "ores": {15: 2}, "desc": "Ammo for every gun"},
+    {"name": "Golden Blaster", "result": {"id": 43, "count": 1}, "money": 15, "xp": 5, "ores": {35: 3}, "desc": "Fast but flashy gun"},
+    {"name": "Diamond Pickaxe", "result": {"id": 25, "count": 1}, "money": 20, "xp": 12, "ores": {24: 2}, "desc": "Top tier mining tool"},
+    {"name": "Diamond Cannon", "result": {"id": 44, "count": 1}, "money": 50, "xp": 18, "ores": {24: 3, 18: 4}, "desc": "Heavy weapon for hard fights"},
+]
 BLOCK_CATEGORIES = {
     1: "dirt", 2: "dirt", 3: "stone", 4: "wood", 6: "dirt", 8: "wood",
     9: "leaves", 10: "wood", 16: "wood", 17: "stone", 23: "stone", 29: "stone", 34: "stone", 45: "wood",
@@ -184,7 +207,9 @@ last_plane_spawn_frame = 0
 last_sunbird_spawn_frame = 0
 last_house_spawn_frame = 0
 last_wander_npc_spawn_frame = 0
+last_boss_spawn_frame = 0
 last_player_damage_frame = 0
+trader_message = ""
 
 player_abs_px = 0.0  
 player_py = 100.0  
@@ -517,7 +542,87 @@ def eat_selected_food():
     play_sound("craft")
     return True
 
+def xp_to_next_level(level):
+    return 10 + max(0, level - 1) * 6
+
+def add_player_xp(amount):
+    global player_xp, player_level
+    player_xp += max(0, amount)
+    while player_xp >= xp_to_next_level(player_level):
+        player_xp -= xp_to_next_level(player_level)
+        player_level += 1
+        play_sound("craft")
+
+def add_kill_rewards(mob_type):
+    global money
+    reward = MOB_REWARDS.get(mob_type, {"xp": 3, "money": 2})
+    add_player_xp(reward["xp"])
+    money += reward["money"]
+    return reward
+
+def ore_cost_text(ores):
+    parts = []
+    for item_id, amount in ores.items():
+        parts.append(f"{ITEM_NAMES.get(item_id, item_id)} x{amount}")
+    return ", ".join(parts)
+
+def trade_cost_text(trade):
+    parts = []
+    if trade.get("money", 0):
+        parts.append(f"${trade['money']}")
+    if trade.get("xp", 0):
+        parts.append(f"XP {trade['xp']}")
+    if trade.get("ores"):
+        parts.append(ore_cost_text(trade["ores"]))
+    return " + ".join(parts) if parts else "Free"
+
+def get_trade_view():
+    trades = []
+    for trade in TRADER_TRADES:
+        shown = trade.copy()
+        shown["cost_text"] = trade_cost_text(trade)
+        trades.append(shown)
+    return trades
+
+def can_afford_trade(trade):
+    if money < trade.get("money", 0):
+        return False, "Need more money."
+    if player_xp < trade.get("xp", 0):
+        return False, "Need more current XP."
+    if not inventory_has_room(trade["result"]):
+        return False, "Inventory is full."
+    for item_id, amount in trade.get("ores", {}).items():
+        if count_item(item_id) < amount:
+            return False, f"Need {ITEM_NAMES.get(item_id, item_id)} x{amount}."
+    return True, ""
+
+def buy_trade(index):
+    global money, player_xp, trader_message
+    if index is None or index < 0 or index >= len(TRADER_TRADES):
+        return False
+    trade = TRADER_TRADES[index]
+    ok, reason = can_afford_trade(trade)
+    if not ok:
+        trader_message = reason
+        play_sound("click")
+        return False
+    money -= trade.get("money", 0)
+    player_xp -= trade.get("xp", 0)
+    for item_id, amount in trade.get("ores", {}).items():
+        consume_item(item_id, amount)
+    add_to_inventory(trade["result"])
+    trader_message = f"Bought {trade['name']}."
+    play_sound("craft")
+    return True
+
 def drop_mob_loot(mob):
+    if mob.get("type") == "ancient_boss":
+        drop_item_stack({"id": 40, "count": random.randint(32, 56)}, mob["x"], mob["y"])
+        drop_item_stack({"id": 24, "count": random.randint(2, 4)}, mob["x"], mob["y"])
+        drop_item_stack({"id": 35, "count": random.randint(5, 9)}, mob["x"], mob["y"])
+        if random.random() < 0.55:
+            drop_item_stack({"id": 44, "count": 1}, mob["x"], mob["y"])
+        return
     bullet_count = random.randint(2, 5)
     if mob.get("type") in ("green_jet", "crystal_wisp"):
         bullet_count += random.randint(1, 3)
@@ -537,8 +642,12 @@ def damage_mob(index, damage, source_x, source_y, knockback=3.0):
     mob["vx"] = mob.get("vx", 0.0) + dx / length * knockback
     mob["vy"] = min(mob.get("vy", 0.0), -2.4) + dy / length * 1.4
     if mob["hp"] <= 0:
+        reward = add_kill_rewards(mob.get("type", "zombie"))
+        spawn_blood_particles(mob["x"] + render.TILE_SIZE / 2, mob["y"] + render.TILE_SIZE / 2, source_x, source_y)
         drop_mob_loot(mob)
         mobs.pop(index)
+        global trader_message
+        trader_message = f"+{reward['xp']} XP  +${reward['money']}"
     play_sound("break")
     return True
 
@@ -677,6 +786,37 @@ def spawn_cave_monster():
         "hp": 14 if mob_type != "crystal_wisp" else 9,
         "phase": random.random() * math.pi * 2,
     })
+
+def spawn_boss():
+    global trader_message
+    if player_level < BOSS_UNLOCK_LEVEL or any(mob.get("type") == "ancient_boss" for mob in mobs):
+        return False
+    if len(mobs) >= MAX_MOBS:
+        for mob in mobs[:]:
+            if not mob.get("aggro") and mob.get("type") != "ancient_boss":
+                mobs.remove(mob)
+                break
+    for _ in range(18):
+        offset = random.choice([-1, 1]) * random.randint(13, 22)
+        spawn_block_x = player_block_center_x + offset
+        spawn_y = find_spawn_y(spawn_block_x)
+        if spawn_y is None:
+            continue
+        mobs.append({
+            "type": "ancient_boss",
+            "x": float(spawn_block_x * render.TILE_SIZE),
+            "y": float(spawn_y - render.TILE_SIZE),
+            "vx": 0.0,
+            "vy": 0.0,
+            "hp": 120,
+            "max_hp": 120,
+            "phase": random.random() * math.pi * 2,
+            "aggro": True,
+        })
+        trader_message = "A Level 20 boss has appeared nearby."
+        play_sound("break")
+        return True
+    return False
 
 def spawn_animal():
     if len(animals) >= MAX_ANIMALS:
@@ -856,6 +996,12 @@ def start_house_at(base_x, ground_y):
     return True
 
 def spawn_wandering_npc():
+    needs_trader = player_level >= TRADER_UNLOCK_LEVEL and not any(npc.get("job") in ("trader", "merchant") for npc in npcs)
+    if needs_trader and len(npcs) >= MAX_NPCS:
+        for npc in npcs[:]:
+            if not npc.get("house") and npc.get("job") not in ("trader", "merchant"):
+                npcs.remove(npc)
+                break
     if len(npcs) >= MAX_NPCS:
         return
     for _ in range(12):
@@ -864,7 +1010,13 @@ def spawn_wandering_npc():
         spawn_y = find_spawn_y(spawn_block_x)
         if spawn_y is None:
             continue
-        job = random.choice(["wanderer", "miner", "merchant", "guard"])
+        if needs_trader:
+            jobs = ["trader"]
+        else:
+            jobs = ["wanderer", "miner", "guard"]
+        if player_level >= TRADER_UNLOCK_LEVEL and not needs_trader:
+            jobs.extend(["trader", "trader", "merchant"])
+        job = random.choice(jobs)
         npcs.append({
             "type": "villager",
             "x": float(spawn_block_x * render.TILE_SIZE),
@@ -893,7 +1045,10 @@ def loot_chest(abs_block_x, block_y):
 
 def find_mob_at_world(world_px, world_py):
     for idx, mob in enumerate(mobs):
-        if mob["x"] - 4 <= world_px <= mob["x"] + render.TILE_SIZE + 4 and mob["y"] - 4 <= world_py <= mob["y"] + render.TILE_SIZE + 4:
+        pad = 28 if mob.get("type") == "ancient_boss" else 4
+        width = render.TILE_SIZE * (2 if mob.get("type") == "ancient_boss" else 1)
+        height = render.TILE_SIZE * (2 if mob.get("type") == "ancient_boss" else 1)
+        if mob["x"] - pad <= world_px <= mob["x"] + width + pad and mob["y"] - pad <= world_py <= mob["y"] + height + pad:
             return idx
     return None
 
@@ -902,6 +1057,23 @@ def find_animal_at_world(world_px, world_py):
         if animal["x"] - 4 <= world_px <= animal["x"] + render.TILE_SIZE + 4 and animal["y"] - 4 <= world_py <= animal["y"] + render.TILE_SIZE + 4:
             return idx
     return None
+
+def find_npc_at_world(world_px, world_py):
+    for idx, npc in enumerate(npcs):
+        if npc["x"] - 8 <= world_px <= npc["x"] + render.TILE_SIZE + 8 and npc["y"] - 8 <= world_py <= npc["y"] + render.TILE_SIZE + 8:
+            return idx
+    return None
+
+def can_trade_with_npc(npc):
+    if player_level < TRADER_UNLOCK_LEVEL:
+        return False
+    if npc.get("job") not in ("trader", "merchant"):
+        return False
+    player_center_x = player_abs_px + render.TILE_SIZE / 2
+    player_center_y = player_py + render.TILE_SIZE / 2
+    npc_center_x = npc["x"] + render.TILE_SIZE / 2
+    npc_center_y = npc["y"] + render.TILE_SIZE / 2
+    return math.hypot(npc_center_x - player_center_x, npc_center_y - player_center_y) / render.TILE_SIZE <= 3.0
 
 def can_attack_mob(mob):
     player_center_x = player_abs_px + render.TILE_SIZE / 2
@@ -927,10 +1099,30 @@ def update_mobs():
         dx = player_abs_px - mob["x"]
         dy = player_py - mob["y"]
         distance_blocks = math.hypot(dx, dy) / render.TILE_SIZE
-        mob["aggro"] = distance_blocks <= HOSTILE_AGGRO_BLOCKS
+        mob["aggro"] = True if kind == "ancient_boss" else distance_blocks <= HOSTILE_AGGRO_BLOCKS
         mob["phase"] = mob.get("phase", 0.0) + 0.08
 
-        if kind in ("green_jet", "crystal_wisp"):
+        if kind == "ancient_boss":
+            if mob["aggro"]:
+                mob["vx"] = max(-0.9, min(0.9, mob["vx"] + (0.065 if dx > 0 else -0.065)))
+                if abs(dx) < render.TILE_SIZE * 4 and random.random() < 0.018:
+                    mob["vy"] = min(mob.get("vy", 0.0), -7.2)
+
+            new_x = mob["x"] + mob["vx"]
+            if not check_collision(new_x, mob["y"]):
+                mob["x"] = new_x
+            else:
+                mob["vx"] *= -0.35
+                if random.random() < 0.10:
+                    mob["vy"] = -6.0
+
+            mob["vy"] += GRAVITY
+            new_y = mob["y"] + mob["vy"]
+            if not check_collision(mob["x"], new_y):
+                mob["y"] = new_y
+            else:
+                mob["vy"] = 0
+        elif kind in ("green_jet", "crystal_wisp"):
             max_speed = 1.75 if kind == "green_jet" else 1.35
             if mob["aggro"]:
                 mob["vx"] = max(-max_speed, min(max_speed, mob["vx"] + (0.10 if dx > 0 else -0.10)))
@@ -976,9 +1168,11 @@ def update_mobs():
             else:
                 mob["vy"] = 0
 
-        if abs((mob["x"] + 20) - (player_abs_px + 20)) < 32 and abs((mob["y"] + 20) - (player_py + 20)) < 36:
+        contact_x = 58 if kind == "ancient_boss" else 32
+        contact_y = 70 if kind == "ancient_boss" else 36
+        if abs((mob["x"] + 20) - (player_abs_px + 20)) < contact_x and abs((mob["y"] + 20) - (player_py + 20)) < contact_y:
             if frame_count - last_player_damage_frame > 45:
-                damage = {"zombie": 2, "cave_zombie": 2, "cave_spider": 2, "green_jet": 2, "crystal_wisp": 2, "slime": 1, "skeleton": 1}.get(kind, 1)
+                damage = {"zombie": 2, "cave_zombie": 2, "cave_spider": 2, "green_jet": 2, "crystal_wisp": 2, "slime": 1, "skeleton": 1, "ancient_boss": 4}.get(kind, 1)
                 damage_player(damage, mob["x"] + render.TILE_SIZE / 2, mob["y"] + render.TILE_SIZE / 2)
                 last_player_damage_frame = frame_count
                 play_sound("break")
@@ -1058,7 +1252,7 @@ def update_npcs():
                 base_speed = 0.55 if npc.get("job") in ("guard", "miner") else 0.4
                 npc["vx"] = random.choice([-base_speed, -base_speed * 0.5, 0, base_speed * 0.5, base_speed])
                 npc["wander_cd"] = random.randint(50, 180)
-            elif npc.get("job") == "merchant":
+            elif npc.get("job") in ("merchant", "trader"):
                 npc["vx"] = math.sin(npc["wave"] * 0.7) * 0.22
             elif npc.get("job") == "wanderer":
                 npc["vx"] = npc.get("vx", 0.0) * 0.98 + math.sin(npc["wave"]) * 0.025
@@ -1103,7 +1297,8 @@ def save_game():
     serializable_chunks = {str(k): v.astype(int).tolist() for k, v in chunks_to_save.items()}
     save_data = {
         "player_abs_px": player_abs_px, "player_py": player_py, "seed": WORLD_SEED,
-        "hp": hp, "hunger": hunger, "inventory": inventory,
+        "hp": hp, "hunger": hunger, "player_level": player_level,
+        "player_xp": player_xp, "money": money, "inventory": inventory,
         "crafting_grid": crafting_grid, "crafting_table_grid": crafting_table_grid,
         "cursor_item": cursor_item, "covered_blocks": covered_blocks,
         "world_time": world_time, "mobs": mobs, "animals": animals,
@@ -1117,7 +1312,7 @@ def save_game():
     print("✅ 無限區塊存檔成功！")
 
 def load_game():
-    global active_chunks, saved_chunks, covered_blocks, player_abs_px, player_py, WORLD_SEED, hp, hunger, inventory, crafting_grid, crafting_table_grid, cursor_item, world_time, mobs, animals, birds, planes, sunbirds, npcs, projectiles, structures, chests, dropped_items
+    global active_chunks, saved_chunks, covered_blocks, player_abs_px, player_py, WORLD_SEED, hp, hunger, player_level, player_xp, money, inventory, crafting_grid, crafting_table_grid, cursor_item, world_time, mobs, animals, birds, planes, sunbirds, npcs, projectiles, structures, chests, dropped_items
     if os.path.exists(SAVE_FILE):
         try:
             with open(SAVE_FILE, "r") as f: 
@@ -1125,6 +1320,9 @@ def load_game():
             player_abs_px, player_py = save_data["player_abs_px"], save_data["player_py"]
             WORLD_SEED = save_data["seed"]
             hp, hunger, inventory = save_data["hp"], save_data["hunger"], save_data["inventory"]
+            player_level = save_data.get("player_level", player_level)
+            player_xp = save_data.get("player_xp", player_xp)
+            money = save_data.get("money", money)
             crafting_grid = save_data.get("crafting_grid", crafting_grid)
             crafting_table_grid = save_data.get("crafting_table_grid", crafting_table_grid)
             cursor_item = save_data.get("cursor_item", cursor_item)
@@ -1361,6 +1559,9 @@ while running:
         if frame_count - last_cave_mob_spawn_frame > CAVE_MOB_SPAWN_INTERVAL:
             spawn_cave_monster()
             last_cave_mob_spawn_frame = frame_count
+        if player_level >= BOSS_UNLOCK_LEVEL and frame_count - last_boss_spawn_frame > BOSS_SPAWN_INTERVAL:
+            spawn_boss()
+            last_boss_spawn_frame = frame_count
         if not is_night() and frame_count - last_animal_spawn_frame > ANIMAL_SPAWN_INTERVAL:
             spawn_animal()
             last_animal_spawn_frame = frame_count
@@ -1394,6 +1595,10 @@ while running:
                     close_inventory()
                     current_state = render.STATE_GAME
                     play_sound("close")
+                elif current_state == render.STATE_TRADER:
+                    current_state = render.STATE_GAME
+                    trader_message = ""
+                    play_sound("close")
                 else:
                     current_state = render.STATE_MENU if current_state == render.STATE_GAME else render.STATE_GAME
                     play_sound("open" if current_state == render.STATE_MENU else "close")
@@ -1404,6 +1609,10 @@ while running:
                 elif current_state in (render.STATE_INVENTORY, render.STATE_CRAFTING_TABLE):
                     close_inventory()
                     current_state = render.STATE_GAME
+                    play_sound("close")
+                elif current_state == render.STATE_TRADER:
+                    current_state = render.STATE_GAME
+                    trader_message = ""
                     play_sound("close")
             elif pygame.K_1 <= event.key <= pygame.K_9: 
                 selected_slot = event.key - pygame.K_1
@@ -1449,6 +1658,11 @@ while running:
                 elif table_idx is not None:
                     handle_slot_click(crafting_table_grid, table_idx, event.button)
 
+        elif event.type == pygame.MOUSEBUTTONDOWN and current_state == render.STATE_TRADER:
+            if event.button == 1:
+                trade_idx = render.get_trader_trade_at(mouse_x, mouse_y, len(TRADER_TRADES))
+                buy_trade(trade_idx)
+
         elif event.type == pygame.MOUSEBUTTONDOWN and current_state == render.STATE_GAME:
             if event.button == 1:
                 handled_attack = False
@@ -1472,6 +1686,12 @@ while running:
                     mining_required_time = get_current_mine_time(target_block)
                     play_sound("click")
             elif event.button == 3:
+                target_npc_idx = find_npc_at_world(screen_pixel_start_x + mouse_x, screen_pixel_start_y + mouse_y)
+                if target_npc_idx is not None and can_trade_with_npc(npcs[target_npc_idx]):
+                    current_state = render.STATE_TRADER
+                    trader_message = "Spend money, XP, or minerals for gear."
+                    play_sound("open")
+                    continue
                 if target_block == 45 and loot_chest(target_abs_block_x, target_block_y):
                     continue
                 if target_block == 4:
@@ -1608,7 +1828,7 @@ while running:
     m_data = [is_mining, mine_target_abs_x - start_block_x, mine_target_abs_y - start_block_y, mining_progress, mining_required_time]
     
     final_canvas = render.draw_game_scene(sky_color, visible_world, p_data, m_data, particles, frame_count, subpixel_offset_x, subpixel_offset_y, target_data, mobs, animals, birds, dropped_items, planes, sunbirds, npcs, projectiles)
-    render.draw_hud(final_canvas, hp, hunger, inventory, selected_slot)
+    render.draw_hud(final_canvas, hp, hunger, inventory, selected_slot, player_level, player_xp, xp_to_next_level(player_level), money)
     cv2.putText(final_canvas, ("Night" if is_night() else "Day") + f" {world_time // 1000:02d}", (20, 115), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
     held_item = inventory[selected_slot]
     if held_item["id"] != 0:
@@ -1634,6 +1854,8 @@ while running:
         final_canvas = render.draw_inventory_screen(final_canvas, inventory, crafting_grid, crafting_output, mouse_x, mouse_y, cursor_item, ITEM_NAMES, TOOL_SPEEDS, WEAPON_DAMAGE, PLACEABLE_BLOCKS)
     elif current_state == render.STATE_CRAFTING_TABLE:
         final_canvas = render.draw_crafting_table_screen(final_canvas, inventory, crafting_table_grid, crafting_table_output, mouse_x, mouse_y, cursor_item, ITEM_NAMES, TOOL_SPEEDS, WEAPON_DAMAGE, PLACEABLE_BLOCKS)
+    elif current_state == render.STATE_TRADER:
+        final_canvas = render.draw_trader_screen(final_canvas, get_trade_view(), mouse_x, mouse_y, ITEM_NAMES, player_level, player_xp, xp_to_next_level(player_level), money, trader_message)
 
     # 4. 刷入 Pygame 視窗
     rgb_canvas = cv2.cvtColor(final_canvas, cv2.COLOR_BGR2RGB)

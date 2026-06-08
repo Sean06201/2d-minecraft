@@ -12,6 +12,7 @@ STATE_GAME = 0
 STATE_MENU = 1
 STATE_INVENTORY = 2
 STATE_CRAFTING_TABLE = 3
+STATE_TRADER = 4
 inventory_slots = 9
 
 MAX_STACK = 64
@@ -341,7 +342,7 @@ def draw_item_tooltip(canvas, item, mouse_x, mouse_y, item_names, tool_speeds=No
         cv2.putText(canvas, line, (x+12, y+24+idx*22), font, scale, (235, 235, 235), thickness)
 
 # --- 3. UI 與畫面渲染 ---
-def draw_hud(canvas, hp, hunger, inventory, selected_slot):
+def draw_hud(canvas, hp, hunger, inventory, selected_slot, level=1, xp=0, xp_next=10, money=0):
     for i in range(10):
         hx, hy = 20 + i * 22, 20
         cv2.rectangle(canvas, (hx, hy), (hx+16, hy+16), (0,0,0), -1)
@@ -351,6 +352,13 @@ def draw_hud(canvas, hp, hunger, inventory, selected_slot):
         hx, hy = 20 + i * 22, 45
         cv2.rectangle(canvas, (hx, hy), (hx+16, hy+16), (0,0,0), -1)
         if i < hunger: cv2.rectangle(canvas, (hx+2, hy+2), (hx+14, hy+14), (50,150,250), -1)
+
+    xp_ratio = 0 if xp_next <= 0 else max(0.0, min(1.0, xp / xp_next))
+    cv2.rectangle(canvas, (20, 70), (240, 84), (20, 35, 30), -1)
+    cv2.rectangle(canvas, (22, 72), (22 + int(216 * xp_ratio), 82), (70, 210, 90), -1)
+    cv2.rectangle(canvas, (20, 70), (240, 84), (0, 0, 0), 1)
+    cv2.putText(canvas, f"Lv {level}  XP {xp}/{xp_next}", (20, 103), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (120, 255, 150), 1)
+    cv2.putText(canvas, f"$ {money}", (160, 103), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (70, 230, 255), 1)
 
     bar_w = inventory_slots * 42
     bar_x = (WIDTH - bar_w) // 2
@@ -513,6 +521,53 @@ def draw_crafting_table_screen(base_canvas, inventory, table_grid, table_output,
     draw_item_tooltip(canvas, selected_item, mouse_x, mouse_y, item_names, tool_speeds, weapon_damage, placeable_blocks)
     return canvas
 
+def get_trader_trade_rect(index):
+    panel_w = 760
+    panel_x = (WIDTH - panel_w) // 2
+    row_y = 155 + index * 62
+    return panel_x + 36, row_y, panel_w - 72, 50
+
+def get_trader_trade_at(mouse_x, mouse_y, trade_count):
+    for i in range(trade_count):
+        if rect_contains(get_trader_trade_rect(i), mouse_x, mouse_y):
+            return i
+    return None
+
+def draw_trader_screen(base_canvas, trades, mouse_x, mouse_y, item_names, level, xp, xp_next, money, message=""):
+    canvas = base_canvas.copy()
+    overlay = canvas.copy()
+    cv2.rectangle(overlay, (0, 0), (WIDTH, HEIGHT), (0, 0, 0), -1)
+    cv2.addWeighted(overlay, 0.55, canvas, 0.45, 0, canvas)
+
+    panel_w, panel_h = 760, 540
+    panel_x, panel_y = (WIDTH - panel_w) // 2, (HEIGHT - panel_h) // 2
+    cv2.rectangle(canvas, (panel_x, panel_y), (panel_x + panel_w, panel_y + panel_h), (82, 86, 92), -1)
+    cv2.rectangle(canvas, (panel_x, panel_y), (panel_x + panel_w, panel_y + panel_h), (30, 35, 40), 3)
+    cv2.putText(canvas, "Wandering Trader", (panel_x + 28, panel_y + 42), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 245, 210), 2)
+    cv2.putText(canvas, f"Level {level}   XP {xp}/{xp_next}   $ {money}", (panel_x + 410, panel_y + 40), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (140, 255, 180), 1)
+    cv2.putText(canvas, "Click a trade. ESC closes.", (panel_x + 28, panel_y + 78), cv2.FONT_HERSHEY_SIMPLEX, 0.52, (225, 225, 225), 1)
+
+    for i, trade in enumerate(trades):
+        x, y, w, h = get_trader_trade_rect(i)
+        hover = rect_contains((x, y, w, h), mouse_x, mouse_y)
+        bg = (118, 125, 132) if hover else (96, 102, 109)
+        cv2.rectangle(canvas, (x, y), (x + w, y + h), bg, -1)
+        cv2.rectangle(canvas, (x, y), (x + w, y + h), (38, 42, 48), 2)
+
+        result = trade["result"]
+        if result["id"] in textures:
+            icon = cv2.resize(textures[result["id"]], (34, 34))
+            canvas[y+8:y+42, x+10:x+44] = icon
+        name = item_names.get(result["id"], f"Item {result['id']}")
+        cv2.putText(canvas, f"{name} x{result['count']}", (x + 56, y + 21), cv2.FONT_HERSHEY_SIMPLEX, 0.52, get_item_rarity_color(result["id"]), 1)
+        cv2.putText(canvas, trade.get("desc", ""), (x + 56, y + 42), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (225, 225, 225), 1)
+        cv2.putText(canvas, trade.get("cost_text", ""), (x + 420, y + 31), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (90, 235, 255), 1)
+
+    if message:
+        cv2.rectangle(canvas, (panel_x + 28, panel_y + panel_h - 58), (panel_x + panel_w - 28, panel_y + panel_h - 22), (52, 58, 64), -1)
+        cv2.putText(canvas, message[:72], (panel_x + 42, panel_y + panel_h - 34), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (245, 245, 245), 1)
+    return canvas
+
 # --- 【無限世界核心修復】現在 draw_game_scene 只負責渲染裁剪後的 visible_world 矩陣 ---
 def draw_game_scene(sky_color, visible_world, player_data, mining_data, particles, frame_count, camera_subpixel_x, camera_subpixel_y, target_data=None, mobs=None, animals=None, birds=None, dropped_items=None, planes=None, sunbirds=None, npcs=None, projectiles=None):
     bgr_sky = (sky_color[2], sky_color[1], sky_color[0])
@@ -638,8 +693,30 @@ def draw_game_scene(sky_color, visible_world, player_data, mining_data, particle
     for mob in mobs or []:
         spx = int(mob["x"] - (ppx - screen_px))
         spy = int(mob["y"] - (ppy - screen_py))
-        if -TILE_SIZE <= spx < WIDTH and -TILE_SIZE <= spy < HEIGHT:
+        if -TILE_SIZE * 2 <= spx < WIDTH + TILE_SIZE and -TILE_SIZE * 2 <= spy < HEIGHT + TILE_SIZE:
             mob_type = mob.get("type")
+            if mob_type == "ancient_boss":
+                pulse = int(np.sin(frame_count * 0.12 + mob.get("phase", 0)) * 5)
+                body = (72, 48, 128)
+                armor = (35, 70, 150)
+                glow = (70, 220, 255)
+                cv2.rectangle(canvas, (spx+2, spy+18), (spx+78, spy+84), body, -1)
+                cv2.rectangle(canvas, (spx+14, spy+2), (spx+66, spy+30), body, -1)
+                cv2.rectangle(canvas, (spx+10, spy+36), (spx+70, spy+62), armor, 2)
+                cv2.circle(canvas, (spx+25, spy+16), 5, glow, -1)
+                cv2.circle(canvas, (spx+55, spy+16), 5, glow, -1)
+                cv2.line(canvas, (spx+12, spy+2), (spx+2, spy-13-pulse), (40, 40, 80), 4)
+                cv2.line(canvas, (spx+68, spy+2), (spx+78, spy-13+pulse), (40, 40, 80), 4)
+                cv2.rectangle(canvas, (spx-8, spy+40), (spx+8, spy+72), (45, 45, 95), -1)
+                cv2.rectangle(canvas, (spx+72, spy+40), (spx+88, spy+72), (45, 45, 95), -1)
+                cv2.rectangle(canvas, (spx+12, spy+84), (spx+30, spy+96), (35, 35, 75), -1)
+                cv2.rectangle(canvas, (spx+50, spy+84), (spx+68, spy+96), (35, 35, 75), -1)
+                max_hp = max(1, mob.get("max_hp", 120))
+                hp_w = max(0, min(86, int(mob.get("hp", 0) / max_hp * 86)))
+                cv2.rectangle(canvas, (spx-4, spy-22), (spx+90, spy-12), (15,15,20), -1)
+                cv2.rectangle(canvas, (spx, spy-20), (spx+hp_w, spy-14), (40,40,220), -1)
+                cv2.putText(canvas, "BOSS", (spx+18, spy-27), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (80,220,255), 1)
+                continue
             if mob_type == "skeleton":
                 body = (210, 210, 210)
                 detail = (60, 60, 60)
@@ -717,10 +794,11 @@ def draw_game_scene(sky_color, visible_world, player_data, mining_data, particle
                 "builder": (80, 120, 190),
                 "miner": (85, 85, 120),
                 "merchant": (160, 80, 170),
+                "trader": (170, 105, 175),
                 "guard": (110, 130, 135),
                 "wanderer": (90, 145, 120),
             }.get(job, (80, 120, 190))
-            label = {"builder": "Build", "miner": "Mine", "merchant": "Shop", "guard": "Guard", "wanderer": "Walk"}.get(job, "NPC")
+            label = {"builder": "Build", "miner": "Mine", "merchant": "Shop", "trader": "Trade", "guard": "Guard", "wanderer": "Walk"}.get(job, "NPC")
             cv2.rectangle(canvas, (spx+10, spy+12), (spx+30, spy+36), cloth, -1)
             cv2.circle(canvas, (spx+20, spy+8), 8, (120, 170, 220), -1)
             cv2.circle(canvas, (spx+17, spy+7), 2, (0,0,0), -1)
@@ -731,8 +809,9 @@ def draw_game_scene(sky_color, visible_world, player_data, mining_data, particle
                 cv2.line(canvas, (spx+12, spy+17), (spx+28, spy+28), (150, 150, 150), 2)
             elif job == "guard":
                 cv2.rectangle(canvas, (spx+28, spy+18), (spx+36, spy+31), (150, 150, 150), 1)
-            elif job == "merchant":
+            elif job in ("merchant", "trader"):
                 cv2.rectangle(canvas, (spx+12, spy+25), (spx+29, spy+31), (30, 190, 240), -1)
+                cv2.circle(canvas, (spx+31, spy+25), 3, (70, 230, 255), -1)
             cv2.putText(canvas, label, (spx-2, spy-5), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (255,255,220), 1)
 
     for shot in projectiles or []:
