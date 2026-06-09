@@ -63,16 +63,26 @@ def add_caves_and_ores(chunk, rows, chunk_cols, offset_x, seed):
 
             cave_a = smooth_cave_value(absolute_x, y, seed)
             cave_b = smooth_cave_value(absolute_x + seed, y * 2, seed + 99)
-            if cave_a > 0.62 and cave_b > 0.48:
+            if cave_a > 0.70 and cave_b > 0.56 and cave_noise(absolute_x, y, seed + 313) > 0.35:
                 chunk[y, local_x] = 0
                 continue
 
             ore_roll = cave_noise(absolute_x, y, seed + 777)
-            if block == 3 and ore_roll > 0.985:
+            deep_roll = cave_noise(absolute_x, y, seed + 444)
+            if block == 3 and y > rows * 0.70 and deep_roll > 0.35:
+                chunk[y, local_x] = 72
+                block = 72
+            elif block == 3 and y > rows * 0.58 and deep_roll > 0.82:
+                chunk[y, local_x] = 74
+                block = 74
+
+            if block in (3, 72, 74) and ore_roll > 0.992:
+                chunk[y, local_x] = 73
+            elif block in (3, 72, 74) and ore_roll > 0.985:
                 chunk[y, local_x] = 23
-            elif block == 3 and ore_roll > 0.970:
+            elif block in (3, 72, 74) and ore_roll > 0.970:
                 chunk[y, local_x] = 34
-            elif block == 3 and ore_roll > 0.955:
+            elif block in (3, 72, 74) and ore_roll > 0.955:
                 chunk[y, local_x] = 17
-            elif block == 3 and ore_roll > 0.925:
+            elif block in (3, 72, 74) and ore_roll > 0.925:
                 chunk[y, local_x] = 15

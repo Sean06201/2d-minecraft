@@ -13,6 +13,7 @@ STATE_MENU = 1
 STATE_INVENTORY = 2
 STATE_CRAFTING_TABLE = 3
 STATE_TRADER = 4
+STATE_FURNACE = 5
 inventory_slots = 9
 HOTBAR_START = 27
 
@@ -245,11 +246,67 @@ def create_texture(block_id):
         tex[:] = (38, 25, 55)
         for _ in range(10):
             cv2.circle(tex, (random.randint(4, 35), random.randint(4, 35)), 2, (80, 45, 125), -1)
+    elif block_id == 67:
+        tex[:] = (65, 65, 65)
+        cv2.ellipse(tex, (20, 21), (12, 9), 0, 0, 360, (70, 120, 75), -1)
+        cv2.circle(tex, (15, 18), 2, (30, 60, 35), -1)
+    elif block_id == 68:
+        tex[:] = (70, 70, 70)
+        cv2.line(tex, (11, 28), (29, 12), (230, 230, 210), 5)
+        cv2.circle(tex, (10, 29), 4, (230, 230, 210), -1)
+        cv2.circle(tex, (30, 11), 4, (230, 230, 210), -1)
+    elif block_id == 69:
+        tex[:] = (70, 70, 70)
+        for r in (8, 14, 20):
+            cv2.ellipse(tex, (20, 20), (r, r//2), 0, 0, 360, (235,235,235), 1)
+    elif block_id == 70:
+        tex[:] = (65, 65, 65)
+        cv2.circle(tex, (20, 20), 12, (70, 220, 90), -1)
+        cv2.circle(tex, (15, 16), 3, (120, 255, 140), -1)
+    elif block_id == 71:
+        tex[:] = (55, 45, 75)
+        cv2.circle(tex, (20, 20), 14, (70, 220, 255), -1)
+        cv2.circle(tex, (20, 20), 8, (80, 50, 180), -1)
+    elif block_id == 72:
+        tex[:] = (75, 75, 90)
+        for _ in range(7):
+            cv2.rectangle(tex, (random.randint(2, 30), random.randint(2, 30)), (random.randint(8, 38), random.randint(8, 38)), (60,60,75), 1)
+    elif block_id == 73:
+        tex[:] = (85, 80, 105)
+        cv2.line(tex, (20, 4), (10, 34), (240, 210, 120), 3)
+        cv2.line(tex, (20, 4), (30, 34), (240, 210, 120), 3)
+        cv2.circle(tex, (20, 18), 5, (255, 245, 170), -1)
+    elif block_id == 74:
+        tex[:] = (105, 100, 92)
+        cv2.line(tex, (0, 13), (40, 13), (82, 78, 72), 2)
+        cv2.line(tex, (0, 27), (40, 27), (82, 78, 72), 2)
+    elif block_id == 75:
+        tex[:] = (65, 65, 65)
+        for p in [(13, 20), (20, 17), (27, 22)]:
+            cv2.ellipse(tex, p, (4, 7), 20, 0, 360, (70, 180, 80), -1)
+    elif block_id == 76:
+        tex[:] = (65, 65, 65)
+        for x in (13, 20, 27):
+            cv2.line(tex, (x, 31), (x-2, 12), (40, 150, 70), 2)
+            cv2.circle(tex, (x-2, 12), 4, (40, 210, 240), -1)
+    elif block_id == 77:
+        tex[:] = (45, 80, 130)
+        for y in range(7, 36, 8):
+            cv2.line(tex, (3, y), (37, y), (35, 60, 100), 2)
+    elif block_id == 78:
+        tex[:] = (45, 80, 130)
+        for x in (12, 20, 28):
+            cv2.line(tex, (x, 34), (x, 12), (35, 170, 75), 2)
+            cv2.circle(tex, (x, 13), 3, (45, 220, 245), -1)
+    elif block_id == 79:
+        tex[:] = (65, 65, 65)
+        cv2.ellipse(tex, (20, 22), (14, 9), 0, 0, 360, (70, 170, 220), -1)
+        cv2.line(tex, (10, 21), (30, 21), (50, 130, 190), 1)
         
     cv2.rectangle(tex, (0,0), (TILE_SIZE-1, TILE_SIZE-1), (0,0,0), 1)
     return tex
 
-for i in range(1, 67): textures[i] = create_texture(i)
+for i in range(1, 80): textures[i] = create_texture(i)
 
 def get_menu_action(mouse_x, mouse_y):
     buttons = [
@@ -296,6 +353,18 @@ def get_table_slot_rect(index):
 def get_table_output_rect():
     px, py, _, _ = get_inventory_panel_rect()
     return px + 430, py + 132, 50, 50
+
+def get_furnace_slot_rect(index):
+    px, py, _, _ = get_inventory_panel_rect()
+    positions = [(px + 135, py + 105), (px + 135, py + 205), (px + 385, py + 155)]
+    x, y = positions[index]
+    return x, y, SLOT_SIZE, SLOT_SIZE
+
+def get_furnace_slot_at(mouse_x, mouse_y):
+    for i in range(3):
+        if rect_contains(get_furnace_slot_rect(i), mouse_x, mouse_y):
+            return i
+    return None
 
 def rect_contains(rect, mouse_x, mouse_y):
     x, y, w, h = rect
@@ -346,6 +415,8 @@ def get_hovered_item(mouse_x, mouse_y, inventory=None, crafting_grid=None, table
     return None
 
 def get_item_rarity_color(item_id):
+    if item_id in (71, 73):
+        return (100, 230, 255)
     if item_id in (57, 58, 59, 60, 61, 62, 63, 66):
         return (255, 235, 90)
     if item_id in (47, 48, 49, 50, 51):
@@ -368,6 +439,8 @@ def get_item_tip_lines(item, item_names, tool_speeds=None, weapon_damage=None, p
     item_id = item["id"]
     lines = [item_names.get(item_id, f"Item {item_id}")]
     lines.append(f"Count: {item['count']}")
+    if "durability" in item:
+        lines.append(f"Durability: {item['durability']}")
     if weapon_damage and item_id in weapon_damage:
         lines.append(f"Attack: {weapon_damage[item_id]}")
     if tool_speeds and item_id in tool_speeds:
@@ -383,7 +456,7 @@ def get_item_tip_lines(item, item_names, tool_speeds=None, weapon_damage=None, p
             lines.append("Mine: " + "  ".join(parts))
     if placeable_blocks and item_id in placeable_blocks:
         lines.append("Placeable block")
-    if item_id in (47, 48, 49, 50, 51):
+    if item_id in (47, 48, 49, 50, 51, 67, 79):
         lines.append("Food: right click to eat")
     usage_notes = {
         52: "Use: smelts ore/Cobblestone with Coal",
@@ -398,6 +471,19 @@ def get_item_tip_lines(item, item_names, tool_speeds=None, weapon_damage=None, p
         64: "Material: Stonecutter recipe",
         65: "Material: Enchanting Table recipe",
         66: "Material: Enchanting Table recipe",
+        67: "Drop: emergency food, not very good",
+        68: "Drop: skeleton material",
+        69: "Drop: cave spider material",
+        70: "Drop: slime material",
+        71: "Drop: boss trophy",
+        72: "Block: stronger deep underground stone",
+        73: "Block: rare glowing cave crystal",
+        74: "Block: dense underground support stone",
+        75: "Use: plant on Farmland",
+        76: "Material: craft Bread with Wheat x3",
+        77: "Use: plant Seeds on it",
+        78: "Crop: harvest when mature",
+        79: "Food: right click to eat",
     }
     if item_id in usage_notes:
         lines.append(usage_notes[item_id])
@@ -465,6 +551,38 @@ def draw_hud(canvas, hp, hunger, inventory, selected_slot, level=1, xp=0, xp_nex
             mini_tex = cv2.resize(textures[item["id"]], (24, 24))
             canvas[sy+7:sy+31, sx+7:sx+31] = mini_tex
             cv2.putText(canvas, str(item["count"]), (sx+20, sy+35), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1)
+
+def draw_minimap(canvas, visible_world, player_block_x, player_block_y, mobs=None, animals=None, npcs=None, village_stats=None):
+    map_w, map_h, scale = 180, 110, 5
+    x0, y0 = WIDTH - map_w - 18, 18
+    cv2.rectangle(canvas, (x0-4, y0-4), (x0+map_w+4, y0+map_h+42), (0, 0, 0), -1)
+    cv2.rectangle(canvas, (x0, y0), (x0+map_w, y0+map_h), (35, 45, 55), -1)
+    colors = {
+        0: (35, 45, 55), 1: (50, 180, 60), 2: (60, 90, 145), 3: (130, 130, 130),
+        6: (130, 205, 235), 7: (230, 150, 50), 8: (25, 65, 100), 9: (45, 150, 45),
+        15: (25, 25, 25), 17: (80, 150, 200), 23: (255, 230, 90), 29: (100, 100, 100),
+        34: (30, 190, 240), 72: (75, 75, 90), 73: (240, 210, 120), 74: (110, 105, 95),
+    }
+    rows = min(visible_world.shape[0], map_h // scale)
+    cols = min(visible_world.shape[1], map_w // scale)
+    for y in range(rows):
+        for x in range(cols):
+            block = int(visible_world[y, x])
+            color = colors.get(block, (110, 110, 110))
+            cv2.rectangle(canvas, (x0+x*scale, y0+y*scale), (x0+(x+1)*scale-1, y0+(y+1)*scale-1), color, -1)
+    cx, cy = x0 + map_w // 2, y0 + map_h // 2
+    cv2.circle(canvas, (cx, cy), 4, (40, 40, 255), -1)
+    for entity_list, color in ((mobs or [], (60, 60, 230)), (animals or [], (80, 220, 80)), (npcs or [], (220, 220, 80))):
+        for entity in entity_list[:12]:
+            ex = int(cx + (entity.get("x", 0) / TILE_SIZE - player_block_x) * scale)
+            ey = int(cy + (entity.get("y", 0) / TILE_SIZE - player_block_y) * scale)
+            if x0 <= ex <= x0 + map_w and y0 <= ey <= y0 + map_h:
+                cv2.circle(canvas, (ex, ey), 2, color, -1)
+    cv2.rectangle(canvas, (x0, y0), (x0+map_w, y0+map_h), (220, 220, 220), 1)
+    cv2.putText(canvas, f"X {player_block_x}  Y {player_block_y}", (x0, y0+map_h+16), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (245,245,245), 1)
+    if village_stats:
+        text = f"Village H{village_stats.get('houses', 0)} S{village_stats.get('supplies', 0)}"
+        cv2.putText(canvas, text, (x0, y0+map_h+34), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (180,255,220), 1)
 
 def draw_minecraft_menu(base_canvas, mouse_x, mouse_y):
     overlay = base_canvas.copy()
@@ -659,6 +777,59 @@ def draw_trader_screen(base_canvas, trades, mouse_x, mouse_y, item_names, level,
     if message:
         cv2.rectangle(canvas, (panel_x + 28, panel_y + panel_h - 58), (panel_x + panel_w - 28, panel_y + panel_h - 22), (52, 58, 64), -1)
         cv2.putText(canvas, message[:72], (panel_x + 42, panel_y + panel_h - 34), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (245, 245, 245), 1)
+    return canvas
+
+def draw_furnace_screen(base_canvas, inventory, furnace_slots, progress, mouse_x, mouse_y, cursor_item, item_names=None, tool_speeds=None, weapon_damage=None, placeable_blocks=None):
+    item_names = item_names or {}
+    canvas = base_canvas.copy()
+    overlay = canvas.copy()
+    cv2.rectangle(overlay, (0, 0), (WIDTH, HEIGHT), (0, 0, 0), -1)
+    cv2.addWeighted(overlay, 0.5, canvas, 0.5, 0, canvas)
+
+    px, py, panel_w, panel_h = get_inventory_panel_rect()
+    cv2.rectangle(canvas, (px, py), (px + panel_w, py + panel_h), (145, 145, 145), -1)
+    cv2.rectangle(canvas, (px, py), (px + panel_w, py + panel_h), (45, 45, 45), 3)
+    cv2.putText(canvas, "Furnace", (px + 20, py + 35), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+
+    labels = ["Input", "Coal", "Output"]
+    for i in range(3):
+        sx, sy, sw, sh = get_furnace_slot_rect(i)
+        bg = (180, 180, 180) if rect_contains((sx, sy, sw, sh), mouse_x, mouse_y) else (100, 100, 100)
+        cv2.rectangle(canvas, (sx, sy), (sx + sw, sy + sh), bg, -1)
+        cv2.rectangle(canvas, (sx, sy), (sx + sw, sy + sh), (35, 35, 35), 2)
+        cv2.putText(canvas, labels[i], (sx - 4, sy - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (245, 245, 245), 1)
+        draw_item_stack(canvas, furnace_slots[i], sx, sy)
+
+    flame = min(1.0, progress / 180.0)
+    cv2.rectangle(canvas, (px + 195, py + 178), (px + 230, py + 225), (30, 30, 30), -1)
+    cv2.rectangle(canvas, (px + 200, py + 220 - int(36 * flame)), (px + 225, py + 220), (30, 130, 240), -1)
+    cv2.line(canvas, (px + 235, py + 180), (px + 355, py + 180), (50, 50, 50), 5)
+    cv2.line(canvas, (px + 345, py + 168), (px + 358, py + 180), (50, 50, 50), 5)
+    cv2.line(canvas, (px + 345, py + 192), (px + 358, py + 180), (50, 50, 50), 5)
+    cv2.rectangle(canvas, (px + 238, py + 198), (px + 355, py + 212), (35, 35, 35), -1)
+    cv2.rectangle(canvas, (px + 240, py + 200), (px + 240 + int(112 * flame), py + 210), (60, 210, 90), -1)
+
+    selected_item = get_hovered_item(mouse_x, mouse_y, inventory=inventory)
+    furnace_hover = get_furnace_slot_at(mouse_x, mouse_y)
+    if furnace_hover is not None and furnace_slots[furnace_hover]["id"] != 0:
+        selected_item = furnace_slots[furnace_hover]
+
+    for i in range(36):
+        slot_x, slot_y, slot_w, slot_h = get_inventory_slot_rect(i)
+        bg_color = (180, 180, 180) if rect_contains((slot_x, slot_y, slot_w, slot_h), mouse_x, mouse_y) else (100, 100, 100)
+        cv2.rectangle(canvas, (slot_x, slot_y), (slot_x + slot_w, slot_y + slot_h), bg_color, -1)
+        cv2.rectangle(canvas, (slot_x, slot_y), (slot_x + slot_w, slot_y + slot_h), (50, 50, 50), 1)
+        draw_item_stack(canvas, inventory[i], slot_x, slot_y)
+
+    if cursor_item["id"] != 0 and cursor_item["id"] in textures:
+        floating_tex = cv2.resize(textures[cursor_item["id"]], (32, 32))
+        x1, x2 = max(0, mouse_x - 16), min(WIDTH, mouse_x + 16)
+        y1, y2 = max(0, mouse_y - 16), min(HEIGHT, mouse_y + 16)
+        if (x2 - x1 == 32) and (y2 - y1 == 32):
+            canvas[y1:y2, x1:x2] = floating_tex
+            cv2.putText(canvas, str(cursor_item["count"]), (mouse_x + 4, mouse_y + 12), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 100), 1)
+
+    draw_item_tooltip(canvas, selected_item, mouse_x, mouse_y, item_names, tool_speeds, weapon_damage, placeable_blocks)
     return canvas
 
 # --- 【無限世界核心修復】現在 draw_game_scene 只負責渲染裁剪後的 visible_world 矩陣 ---
