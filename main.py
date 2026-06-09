@@ -24,6 +24,8 @@ MAX_MOBS = 10
 MAX_ANIMALS = 8
 MAX_BIRDS = 8
 MAX_PLANES = 3
+MAX_SUPPLY_PLANES = 2
+MAX_SUPPLY_CRATES = 4
 MAX_SUNBIRDS = 4
 MAX_NPCS = 8
 MAX_PROJECTILES = 40
@@ -34,6 +36,7 @@ MOB_SPAWN_INTERVAL = 180
 ANIMAL_SPAWN_INTERVAL = 360
 BIRD_SPAWN_INTERVAL = 210
 PLANE_SPAWN_INTERVAL = 900
+SUPPLY_PLANE_SPAWN_INTERVAL = 3000
 SUNBIRD_SPAWN_INTERVAL = 520
 HOUSE_SPAWN_INTERVAL = 3000
 WANDER_NPC_SPAWN_INTERVAL = 700
@@ -193,6 +196,8 @@ mobs = []
 animals = []
 birds = []
 planes = []
+supply_planes = []
+supply_crates = []
 sunbirds = []
 npcs = []
 projectiles = []
@@ -204,6 +209,7 @@ last_cave_mob_spawn_frame = 0
 last_animal_spawn_frame = 0
 last_bird_spawn_frame = 0
 last_plane_spawn_frame = 0
+last_supply_plane_spawn_frame = 0
 last_sunbird_spawn_frame = 0
 last_house_spawn_frame = 0
 last_wander_npc_spawn_frame = 0
@@ -860,6 +866,19 @@ def spawn_plane():
         "banner": random.choice(["SKY", "MINE", "AIR"]),
     })
 
+def spawn_supply_plane():
+    if len(supply_planes) >= MAX_SUPPLY_PLANES or random.random() > 0.45:
+        return
+    direction = random.choice([-1, 1])
+    supply_planes.append({
+        "type": random.choice(["cargo_plane", "blimp", "drone"]),
+        "x": float(player_abs_px + direction * random.randint(26, 38) * render.TILE_SIZE),
+        "y": float(random.randint(2, 5) * render.TILE_SIZE),
+        "vx": float(-direction * random.uniform(1.8, 2.8)),
+        "dropped": False,
+        "phase": random.uniform(0, math.pi * 2),
+    })
+
 def spawn_sunbird():
     if len(sunbirds) >= MAX_SUNBIRDS:
         return
@@ -944,6 +963,20 @@ def create_chest_loot():
     ]
     random.shuffle(possible)
     return possible[:random.randint(2, 4)]
+
+def create_airdrop_loot():
+    possible = [
+        {"id": 40, "count": random.randint(18, 36)},
+        {"id": 47, "count": random.randint(2, 4)},
+        {"id": 49, "count": random.randint(2, 4)},
+        {"id": 15, "count": random.randint(4, 9)},
+        {"id": 18, "count": random.randint(2, 5)},
+        {"id": 35, "count": random.randint(1, 4)},
+        {"id": 24, "count": 1},
+        {"id": random.choice([19, 21, 30, 32, 41, 42]), "count": 1},
+    ]
+    random.shuffle(possible)
+    return possible[:random.randint(3, 5)]
 
 def spawn_house_with_npc():
     if len(structures) >= MAX_STRUCTURES or len(npcs) >= MAX_NPCS:
@@ -1223,6 +1256,44 @@ def update_planes():
         if abs(plane["x"] - player_abs_px) > render.TILE_SIZE * 40:
             planes.remove(plane)
 
+def update_supply_planes():
+    for plane in supply_planes[:]:
+        plane["phase"] = plane.get("phase", 0.0) + 0.06
+        plane["x"] += plane.get("vx", 0.0)
+        should_drop = not plane.get("dropped") and abs(plane["x"] - (player_abs_px + render.TILE_SIZE / 2)) < render.TILE_SIZE * 2.5
+        if should_drop and len(supply_crates) < MAX_SUPPLY_CRATES:
+            plane["dropped"] = True
+            supply_crates.append({
+                "x": plane["x"] + 18,
+                "y": plane["y"] + 22,
+                "vx": plane.get("vx", 0.0) * 0.18,
+                "vy": 0.4,
+                "phase": random.random() * math.pi * 2,
+                "loot": create_airdrop_loot(),
+            })
+            play_sound("place")
+        if abs(plane["x"] - player_abs_px) > render.TILE_SIZE * 44:
+            supply_planes.remove(plane)
+
+def update_supply_crates():
+    for crate in supply_crates[:]:
+        crate["phase"] = crate.get("phase", 0.0) + 0.10
+        crate["vy"] = min(3.4, crate.get("vy", 0.0) + GRAVITY * 0.08)
+        crate["x"] += crate.get("vx", 0.0)
+        crate["y"] += crate["vy"]
+        block_x = int((crate["x"] + render.TILE_SIZE / 2) // render.TILE_SIZE)
+        block_y = int((crate["y"] + render.TILE_SIZE) // render.TILE_SIZE)
+        if block_y >= WORLD_ROWS - 1 or int(get_block_at(block_x, block_y)) not in NON_SOLID_BLOCKS:
+            chest_y = max(0, min(WORLD_ROWS - 1, block_y - 1))
+            if int(get_block_at(block_x, chest_y)) in NON_SOLID_BLOCKS:
+                set_block_at(block_x, chest_y, 45)
+                chests[block_key(block_x, chest_y)] = crate.get("loot", create_airdrop_loot())
+                play_sound("craft")
+            else:
+                for item in crate.get("loot", []):
+                    drop_item_stack(item, crate["x"], crate["y"])
+            supply_crates.remove(crate)
+
 def update_sunbirds():
     for sunbird in sunbirds[:]:
         sunbird["phase"] = sunbird.get("phase", 0.0) + 0.18
@@ -1302,7 +1373,8 @@ def save_game():
         "crafting_grid": crafting_grid, "crafting_table_grid": crafting_table_grid,
         "cursor_item": cursor_item, "covered_blocks": covered_blocks,
         "world_time": world_time, "mobs": mobs, "animals": animals,
-        "birds": birds, "planes": planes, "sunbirds": sunbirds,
+        "birds": birds, "planes": planes, "supply_planes": supply_planes,
+        "supply_crates": supply_crates, "sunbirds": sunbirds,
         "npcs": npcs, "projectiles": projectiles, "structures": structures,
         "chests": chests, "dropped_items": dropped_items,
         "chunks": serializable_chunks
@@ -1312,7 +1384,7 @@ def save_game():
     print("✅ 無限區塊存檔成功！")
 
 def load_game():
-    global active_chunks, saved_chunks, covered_blocks, player_abs_px, player_py, WORLD_SEED, hp, hunger, player_level, player_xp, money, inventory, crafting_grid, crafting_table_grid, cursor_item, world_time, mobs, animals, birds, planes, sunbirds, npcs, projectiles, structures, chests, dropped_items
+    global active_chunks, saved_chunks, covered_blocks, player_abs_px, player_py, WORLD_SEED, hp, hunger, player_level, player_xp, money, inventory, crafting_grid, crafting_table_grid, cursor_item, world_time, mobs, animals, birds, planes, supply_planes, supply_crates, sunbirds, npcs, projectiles, structures, chests, dropped_items
     if os.path.exists(SAVE_FILE):
         try:
             with open(SAVE_FILE, "r") as f: 
@@ -1332,6 +1404,8 @@ def load_game():
             animals = save_data.get("animals", [])
             birds = save_data.get("birds", [])
             planes = save_data.get("planes", [])
+            supply_planes = save_data.get("supply_planes", [])
+            supply_crates = save_data.get("supply_crates", [])
             sunbirds = save_data.get("sunbirds", [])
             npcs = save_data.get("npcs", [])
             projectiles = save_data.get("projectiles", [])
@@ -1571,6 +1645,9 @@ while running:
         if frame_count - last_plane_spawn_frame > PLANE_SPAWN_INTERVAL:
             spawn_plane()
             last_plane_spawn_frame = frame_count
+        if frame_count - last_supply_plane_spawn_frame > SUPPLY_PLANE_SPAWN_INTERVAL:
+            spawn_supply_plane()
+            last_supply_plane_spawn_frame = frame_count
         if frame_count - last_sunbird_spawn_frame > SUNBIRD_SPAWN_INTERVAL:
             spawn_sunbird()
             last_sunbird_spawn_frame = frame_count
@@ -1803,6 +1880,8 @@ while running:
         update_animals()
         update_birds()
         update_planes()
+        update_supply_planes()
+        update_supply_crates()
         update_sunbirds()
         update_npcs()
         update_projectiles()
@@ -1827,7 +1906,7 @@ while running:
     p_data = [player_abs_px, player_py, vel_x if current_state == render.STATE_GAME else 0, is_grounded, facing_right, is_swimming]
     m_data = [is_mining, mine_target_abs_x - start_block_x, mine_target_abs_y - start_block_y, mining_progress, mining_required_time]
     
-    final_canvas = render.draw_game_scene(sky_color, visible_world, p_data, m_data, particles, frame_count, subpixel_offset_x, subpixel_offset_y, target_data, mobs, animals, birds, dropped_items, planes, sunbirds, npcs, projectiles)
+    final_canvas = render.draw_game_scene(sky_color, visible_world, p_data, m_data, particles, frame_count, subpixel_offset_x, subpixel_offset_y, target_data, mobs, animals, birds, dropped_items, planes, sunbirds, npcs, projectiles, supply_planes, supply_crates)
     render.draw_hud(final_canvas, hp, hunger, inventory, selected_slot, player_level, player_xp, xp_to_next_level(player_level), money)
     cv2.putText(final_canvas, ("Night" if is_night() else "Day") + f" {world_time // 1000:02d}", (20, 115), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
     held_item = inventory[selected_slot]

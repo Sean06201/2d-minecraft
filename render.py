@@ -569,7 +569,7 @@ def draw_trader_screen(base_canvas, trades, mouse_x, mouse_y, item_names, level,
     return canvas
 
 # --- 【無限世界核心修復】現在 draw_game_scene 只負責渲染裁剪後的 visible_world 矩陣 ---
-def draw_game_scene(sky_color, visible_world, player_data, mining_data, particles, frame_count, camera_subpixel_x, camera_subpixel_y, target_data=None, mobs=None, animals=None, birds=None, dropped_items=None, planes=None, sunbirds=None, npcs=None, projectiles=None):
+def draw_game_scene(sky_color, visible_world, player_data, mining_data, particles, frame_count, camera_subpixel_x, camera_subpixel_y, target_data=None, mobs=None, animals=None, birds=None, dropped_items=None, planes=None, sunbirds=None, npcs=None, projectiles=None, supply_planes=None, supply_crates=None):
     bgr_sky = (sky_color[2], sky_color[1], sky_color[0])
     canvas = np.full((HEIGHT, WIDTH, 3), bgr_sky, dtype=np.uint8)
     
@@ -689,6 +689,47 @@ def draw_game_scene(sky_color, visible_world, player_data, mining_data, particle
             cv2.line(canvas, (spx+26, spy+6), (spx+45, spy+25), (190, 190, 200), 4)
             cv2.circle(canvas, (spx+9, spy+6), 3, (90, 180, 255), -1)
             cv2.putText(canvas, plane.get("banner", ""), (spx+8, spy+30), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (255,255,255), 1)
+
+    for plane in supply_planes or []:
+        spx = int(plane["x"] - (ppx - screen_px))
+        spy = int(plane["y"] - (ppy - screen_py))
+        if -110 <= spx < WIDTH + 110 and -40 <= spy < HEIGHT:
+            kind = plane.get("type", "cargo_plane")
+            if kind == "blimp":
+                cv2.ellipse(canvas, (spx+36, spy+10), (36, 14), 0, 0, 360, (165, 190, 215), -1)
+                cv2.rectangle(canvas, (spx+22, spy+21), (spx+52, spy+30), (90, 115, 145), -1)
+                cv2.line(canvas, (spx+20, spy+18), (spx+28, spy+24), (55, 70, 95), 1)
+                cv2.line(canvas, (spx+52, spy+18), (spx+46, spy+24), (55, 70, 95), 1)
+                cv2.putText(canvas, "DROP", (spx+17, spy+45), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (255,255,220), 1)
+            elif kind == "drone":
+                flap = int(np.sin(frame_count * 0.35 + plane.get("phase", 0)) * 2)
+                cv2.rectangle(canvas, (spx+22, spy+8), (spx+48, spy+24), (95, 105, 120), -1)
+                for ox, oy in ((8, 5), (62, 5), (8, 28), (62, 28)):
+                    cv2.circle(canvas, (spx+ox, spy+oy+flap), 8, (55, 65, 80), 1)
+                    cv2.line(canvas, (spx+ox-7, spy+oy+flap), (spx+ox+7, spy+oy+flap), (210,210,210), 1)
+                cv2.line(canvas, (spx+22, spy+16), (spx+8, spy+5+flap), (80,90,105), 2)
+                cv2.line(canvas, (spx+48, spy+16), (spx+62, spy+5+flap), (80,90,105), 2)
+            else:
+                cv2.rectangle(canvas, (spx, spy+7), (spx+72, spy+22), (170, 190, 205), -1)
+                cv2.rectangle(canvas, (spx+48, spy-4), (spx+68, spy+22), (120, 145, 165), -1)
+                cv2.line(canvas, (spx+20, spy+14), (spx+4, spy+36), (145, 165, 185), 5)
+                cv2.line(canvas, (spx+34, spy+14), (spx+62, spy+38), (145, 165, 185), 5)
+                cv2.rectangle(canvas, (spx+26, spy+23), (spx+44, spy+34), (45, 85, 140), -1)
+                cv2.putText(canvas, "SUP", (spx+8, spy+47), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (255,255,220), 1)
+            if not plane.get("dropped"):
+                cv2.circle(canvas, (spx+38, spy+36), 3, (40, 240, 255), -1)
+
+    for crate in supply_crates or []:
+        spx = int(crate["x"] - (ppx - screen_px))
+        spy = int(crate["y"] - (ppy - screen_py))
+        if -60 <= spx < WIDTH + 60 and -80 <= spy < HEIGHT:
+            sway = int(np.sin(frame_count * 0.12 + crate.get("phase", 0)) * 4)
+            cv2.ellipse(canvas, (spx+20+sway, spy-18), (28, 13), 0, 180, 360, (245, 245, 245), 2)
+            cv2.line(canvas, (spx-5+sway, spy-18), (spx+8, spy+8), (235,235,235), 1)
+            cv2.line(canvas, (spx+45+sway, spy-18), (spx+32, spy+8), (235,235,235), 1)
+            cv2.rectangle(canvas, (spx+4, spy+8), (spx+36, spy+38), (45, 85, 140), -1)
+            cv2.rectangle(canvas, (spx+4, spy+8), (spx+36, spy+38), (20, 45, 80), 2)
+            cv2.rectangle(canvas, (spx+17, spy+19), (spx+23, spy+25), (30, 190, 240), -1)
 
     for mob in mobs or []:
         spx = int(mob["x"] - (ppx - screen_px))
