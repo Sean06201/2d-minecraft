@@ -42,17 +42,22 @@ HOUSE_SPAWN_INTERVAL = 3000
 WANDER_NPC_SPAWN_INTERVAL = 700
 CAVE_MOB_SPAWN_INTERVAL = 240
 BOSS_SPAWN_INTERVAL = 3600
+HUNGER_DECAY_INTERVAL = 2400
+SPRINT_HUNGER_INTERVAL = 420
+STARVE_DAMAGE_INTERVAL = 180
+HOTBAR_START = 27
+HOTBAR_SIZE = 9
 
 mouse_x, mouse_y = 0, 0     
 is_mining, mine_target_abs_x, mine_target_abs_y, mining_progress, mining_required_time = False, -1, -1, 0, 20
 particles = []
 
-hp, hunger, selected_slot = 10, 10, 0
+hp, hunger, selected_slot = 10, 10, HOTBAR_START
 player_level, player_xp, money = 1, 0, 0
 inventory = [{"id": 0, "count": 0} for _ in range(36)]
-inventory[0] = {"id": 41, "count": 1}
-inventory[1] = {"id": 40, "count": 32}
-inventory[2] = {"id": 1, "count": 64}
+inventory[HOTBAR_START] = {"id": 41, "count": 1}
+inventory[HOTBAR_START + 1] = {"id": 40, "count": 32}
+inventory[HOTBAR_START + 2] = {"id": 1, "count": 64}
 crafting_grid = [{"id": 0, "count": 0} for _ in range(4)] 
 crafting_table_grid = [{"id": 0, "count": 0} for _ in range(9)]
 crafting_output, crafting_table_output = {"id": 0, "count": 0}, {"id": 0, "count": 0}
@@ -72,9 +77,15 @@ ITEM_NAMES = {
     40: "Bullet", 41: "Stone Pistol", 42: "Iron Rifle", 43: "Golden Blaster",
     44: "Diamond Cannon", 45: "Chest", 46: "House Kit",
     47: "Chicken", 48: "Porkchop", 49: "Beef", 50: "Mutton", 51: "Venison",
+    # Stone utility set requested by the crafting reference.
+    52: "Furnace", 53: "Stone Hoe", 54: "Stonecutter", 55: "Lever", 56: "Cobblestone Wall",
+    # Diamond and late-game utility set requested by the crafting reference.
+    57: "Diamond Block", 58: "Diamond Helmet", 59: "Diamond Chestplate",
+    60: "Diamond Leggings", 61: "Diamond Boots", 62: "Enchanting Table",
+    63: "Jukebox", 64: "Smooth Stone", 65: "Book", 66: "Obsidian",
 }
-PLACEABLE_BLOCKS = {1, 2, 3, 4, 6, 8, 9, 10, 16, 17, 23, 29, 34, 45}
-BLOCK_DROPS = {3: 29, 17: 18, 23: 24, 34: 35}
+PLACEABLE_BLOCKS = {1, 2, 3, 4, 6, 8, 9, 10, 16, 17, 23, 29, 34, 45, 52, 54, 55, 56, 57, 62, 63, 64, 66}
+BLOCK_DROPS = {3: 29, 17: 18, 23: 24, 34: 35, 52: 52, 54: 54, 55: 55, 56: 56, 57: 57, 62: 62, 63: 63, 64: 64, 66: 66}
 TOOL_SPEEDS = {
     11: {"stone": 2.0, "dirt": 1.0, "wood": 1.0},
     12: {"stone": 1.0, "dirt": 3.0, "wood": 1.0},
@@ -88,11 +99,12 @@ TOOL_SPEEDS = {
     30: {"stone": 3.0, "dirt": 1.0, "wood": 1.0},
     31: {"stone": 1.0, "dirt": 4.0, "wood": 1.0},
     33: {"stone": 1.0, "dirt": 1.0, "wood": 4.0},
+    53: {"stone": 1.0, "dirt": 2.5, "wood": 1.0},
     36: {"stone": 7.0, "dirt": 1.0, "wood": 1.0},
     37: {"stone": 1.0, "dirt": 8.0, "wood": 1.0},
     39: {"stone": 1.0, "dirt": 1.0, "wood": 8.0},
 }
-WEAPON_DAMAGE = {13: 4, 21: 6, 27: 8, 32: 5, 38: 4, 41: 5, 42: 7, 43: 6, 44: 10, 14: 3, 22: 5, 28: 7, 33: 4, 39: 3}
+WEAPON_DAMAGE = {13: 4, 21: 6, 27: 8, 32: 5, 38: 4, 41: 5, 42: 7, 43: 6, 44: 10, 14: 3, 22: 5, 28: 7, 33: 4, 39: 3, 53: 2}
 GUN_STATS = {
     41: {"damage": 5, "speed": 11.0, "cost": 1},
     42: {"damage": 7, "speed": 14.0, "cost": 1},
@@ -126,10 +138,13 @@ TRADER_TRADES = [
     {"name": "Golden Blaster", "result": {"id": 43, "count": 1}, "money": 15, "xp": 5, "ores": {35: 3}, "desc": "Fast but flashy gun"},
     {"name": "Diamond Pickaxe", "result": {"id": 25, "count": 1}, "money": 20, "xp": 12, "ores": {24: 2}, "desc": "Top tier mining tool"},
     {"name": "Diamond Cannon", "result": {"id": 44, "count": 1}, "money": 50, "xp": 18, "ores": {24: 3, 18: 4}, "desc": "Heavy weapon for hard fights"},
+    {"name": "Book", "result": {"id": 65, "count": 1}, "money": 8, "xp": 0, "ores": {}, "desc": "Used for an Enchanting Table"},
+    {"name": "Obsidian Pack", "result": {"id": 66, "count": 4}, "money": 18, "xp": 3, "ores": {35: 1}, "desc": "Rare block for enchanting"},
 ]
 BLOCK_CATEGORIES = {
     1: "dirt", 2: "dirt", 3: "stone", 4: "wood", 6: "dirt", 8: "wood",
     9: "leaves", 10: "wood", 16: "wood", 17: "stone", 23: "stone", 29: "stone", 34: "stone", 45: "wood",
+    52: "stone", 54: "stone", 55: "stone", 56: "stone", 57: "stone", 62: "stone", 63: "wood", 64: "stone", 66: "stone",
 }
 
 SHAPELESS_RECIPES = {
@@ -158,6 +173,12 @@ SHAPED_RECIPES_3 = {
     ((29,), (29,), (5,)): {"id": 32, "count": 1},
     ((29, 29), (29, 5), (0, 5)): {"id": 33, "count": 1},
     ((29, 29), (5, 29), (5, 0)): {"id": 33, "count": 1},
+    ((29, 29, 29), (29, 0, 29), (29, 29, 29)): {"id": 52, "count": 1},
+    ((29, 29), (0, 5), (0, 5)): {"id": 53, "count": 1},
+    ((29, 29), (5, 0), (5, 0)): {"id": 53, "count": 1},
+    ((0, 18, 0), (64, 64, 64)): {"id": 54, "count": 1},
+    ((5,), (29,)): {"id": 55, "count": 1},
+    ((29, 29, 29), (29, 29, 29)): {"id": 56, "count": 6},
     ((18, 18, 18), (0, 5, 0), (0, 5, 0)): {"id": 19, "count": 1},
     ((18,), (5,), (5,)): {"id": 20, "count": 1},
     ((18,), (18,), (5,)): {"id": 21, "count": 1},
@@ -168,6 +189,13 @@ SHAPED_RECIPES_3 = {
     ((24,), (24,), (5,)): {"id": 27, "count": 1},
     ((24, 24), (24, 5), (0, 5)): {"id": 28, "count": 1},
     ((24, 24), (5, 24), (5, 0)): {"id": 28, "count": 1},
+    ((24, 24, 24), (24, 24, 24), (24, 24, 24)): {"id": 57, "count": 1},
+    ((24, 24, 24), (24, 0, 24)): {"id": 58, "count": 1},
+    ((24, 0, 24), (24, 24, 24), (24, 24, 24)): {"id": 59, "count": 1},
+    ((24, 24, 24), (24, 0, 24), (24, 0, 24)): {"id": 60, "count": 1},
+    ((24, 0, 24), (24, 0, 24)): {"id": 61, "count": 1},
+    ((0, 65, 0), (24, 66, 24), (66, 66, 66)): {"id": 62, "count": 1},
+    ((10, 10, 10), (10, 24, 10), (10, 10, 10)): {"id": 63, "count": 1},
     ((35, 35, 35), (0, 5, 0), (0, 5, 0)): {"id": 36, "count": 1},
     ((35,), (5,), (5,)): {"id": 37, "count": 1},
     ((35,), (35,), (5,)): {"id": 38, "count": 1},
@@ -185,6 +213,25 @@ SHAPED_RECIPES_3 = {
     ((10, 10, 10), (10, 45, 10), (10, 10, 10)): {"id": 46, "count": 1},
     ((8, 8, 8), (8, 45, 8), (8, 8, 8)): {"id": 46, "count": 1},
 }
+
+# 3x3 crafting reference for the requested stone/diamond utility items.
+# Format: output, ingredients, layout, in-game use.
+CRAFTING_REFERENCE_3X3 = [
+    ("Furnace", "Cobblestone x8", "outer ring filled, center empty", "right click to smelt ore or Cobblestone using Coal"),
+    ("Stone Sword", "Cobblestone x2 + Stick x1", "top-middle and center Cobblestone, bottom-middle Stick", "melee weapon"),
+    ("Stone Pickaxe", "Cobblestone x3 + Stick x2", "top row Cobblestone, center and bottom-middle Stick", "faster mining for stone/ore"),
+    ("Stone Axe", "Cobblestone x3 + Stick x2", "top-left, top-middle, middle-left Cobblestone; center and bottom-middle Stick", "faster chopping"),
+    ("Stone Shovel", "Cobblestone x1 + Stick x2", "top-middle Cobblestone, center and bottom-middle Stick", "faster digging"),
+    ("Stone Hoe", "Cobblestone x2 + Stick x2", "top-left and top-middle Cobblestone, center and bottom-middle Stick", "light utility tool"),
+    ("Stonecutter", "Iron Ingot x1 + Smooth Stone x3", "center Iron Ingot, bottom row Smooth Stone", "right click to cut Cobblestone into walls"),
+    ("Lever", "Stick x1 + Cobblestone x1", "center Stick, bottom-middle Cobblestone", "right click to toggle a torch signal above"),
+    ("Cobblestone Wall x6", "Cobblestone x6", "middle and bottom rows filled", "placeable defensive wall block"),
+    ("Diamond Block", "Diamond x9", "all nine slots filled", "compact storage and shiny building block"),
+    ("Diamond Armor", "Diamond 5/8/7/4", "Minecraft armor shapes", "right click armor pieces to equip and reduce damage"),
+    ("Diamond Tools", "Diamond x1-3 + Stick", "same tool layouts as stone/iron tools", "late-game mining and combat"),
+    ("Enchanting Table", "Book x1 + Diamond x2 + Obsidian x4", "Book top-middle; Diamond/Obsidian/Diamond middle; Obsidian bottom row", "right click to enchant held gear for XP"),
+    ("Jukebox", "Planks x8 + Diamond x1", "outer ring Planks, center Diamond", "right click to play music and gain a tiny XP boost"),
+]
 
 active_chunks = {} 
 saved_chunks = {}
@@ -204,6 +251,8 @@ projectiles = []
 structures = []
 chests = {}
 dropped_items = []
+equipped_armor = {"helmet": 0, "chestplate": 0, "leggings": 0, "boots": 0}
+enchanted_item_ids = []
 last_mob_spawn_frame = 0
 last_cave_mob_spawn_frame = 0
 last_animal_spawn_frame = 0
@@ -216,6 +265,16 @@ last_wander_npc_spawn_frame = 0
 last_boss_spawn_frame = 0
 last_player_damage_frame = 0
 trader_message = ""
+
+DIAMOND_ARMOR_SLOTS = {58: "helmet", 59: "chestplate", 60: "leggings", 61: "boots"}
+DIAMOND_ARMOR_DEFENSE = {58: 1, 59: 3, 60: 2, 61: 1}
+ENCHANTABLE_ITEMS = set(TOOL_SPEEDS.keys()) | set(WEAPON_DAMAGE.keys()) | set(GUN_STATS.keys())
+FURNACE_RECIPES = {
+    17: {"result": 18, "name": "Iron Ingot"},
+    34: {"result": 35, "name": "Gold Ingot"},
+    23: {"result": 24, "name": "Diamond"},
+    29: {"result": 64, "name": "Smooth Stone"},
+}
 
 player_abs_px = 0.0  
 player_py = 100.0  
@@ -230,6 +289,9 @@ MINE_REACH_BLOCKS = 3
 NON_SOLID_BLOCKS = [0, 7, 9]
 last_step_frame = 0
 last_swim_frame = 0
+last_hunger_decay_frame = 0
+last_sprint_hunger_frame = 0
+last_starve_damage_frame = 0
 
 try:
     if not pygame.mixer.get_init():
@@ -360,12 +422,16 @@ def get_current_mine_time(block_id):
     category = get_block_category(block_id)
     selected_id = get_selected_item_id()
     speed = TOOL_SPEEDS.get(selected_id, {}).get(category, 1.0)
+    if selected_id in enchanted_item_ids:
+        speed *= 1.35
     if category == "leaves":
         speed = max(speed, 2.5)
     return max(5, int(MINE_MAX_TIME / speed))
 
 def get_attack_damage():
-    return WEAPON_DAMAGE.get(get_selected_item_id(), 1)
+    selected_id = get_selected_item_id()
+    damage = WEAPON_DAMAGE.get(selected_id, 1)
+    return damage + (2 if selected_id in enchanted_item_ids else 0)
 
 def is_night():
     t = world_time % DAY_LENGTH_FRAMES
@@ -472,10 +538,25 @@ def update_particles():
 
 def damage_player(amount, source_x=None, source_y=None):
     global hp
+    if source_x is not None or source_y is not None:
+        armor_points = sum(DIAMOND_ARMOR_DEFENSE.get(item_id, 0) for item_id in equipped_armor.values())
+        amount = max(0, amount - armor_points // 3)
     old_hp = hp
     hp = max(0, hp - max(0, amount))
     if hp < old_hp:
         spawn_blood_particles(player_abs_px + render.TILE_SIZE / 2, player_py + render.TILE_SIZE / 2, source_x, source_y)
+
+def update_hunger(is_sprinting_now):
+    global hunger, last_hunger_decay_frame, last_sprint_hunger_frame, last_starve_damage_frame
+    if hunger > 0 and frame_count - last_hunger_decay_frame >= HUNGER_DECAY_INTERVAL:
+        hunger = max(0, hunger - 1)
+        last_hunger_decay_frame = frame_count
+    if hunger > 0 and is_sprinting_now and frame_count - last_sprint_hunger_frame >= SPRINT_HUNGER_INTERVAL:
+        hunger = max(0, hunger - 1)
+        last_sprint_hunger_frame = frame_count
+    if hunger <= 0 and frame_count - last_starve_damage_frame >= STARVE_DAMAGE_INTERVAL:
+        damage_player(1)
+        last_starve_damage_frame = frame_count
 
 def drop_item_stack(item, x, y):
     if is_empty(item):
@@ -526,7 +607,7 @@ def fire_gun(target_world_x, target_world_y):
         "y": start_y,
         "vx": dx / length * stats["speed"],
         "vy": dy / length * stats["speed"],
-        "damage": stats["damage"],
+        "damage": stats["damage"] + (2 if gun_id in enchanted_item_ids else 0),
         "life": 90,
         "kind": gun_id,
     })
@@ -546,6 +627,100 @@ def eat_selected_food():
     item["count"] -= 1
     normalize_item(item)
     play_sound("craft")
+    return True
+
+def equip_selected_armor():
+    global trader_message
+    item = inventory[selected_slot]
+    slot_name = DIAMOND_ARMOR_SLOTS.get(item["id"])
+    if not slot_name or item["count"] <= 0:
+        return False
+    old_item_id = equipped_armor.get(slot_name, 0)
+    equipped_armor[slot_name] = item["id"]
+    item["count"] -= 1
+    normalize_item(item)
+    if old_item_id:
+        add_to_inventory({"id": old_item_id, "count": 1})
+    trader_message = f"Equipped {ITEM_NAMES.get(equipped_armor[slot_name], 'Armor')}."
+    play_sound("craft")
+    return True
+
+def use_furnace_block():
+    global trader_message
+    if count_item(15) <= 0:
+        trader_message = "Furnace needs Coal."
+        play_sound("click")
+        return False
+    for source_id, recipe in FURNACE_RECIPES.items():
+        if count_item(source_id) > 0 and inventory_has_room({"id": recipe["result"], "count": 1}):
+            consume_item(15, 1)
+            consume_item(source_id, 1)
+            add_to_inventory({"id": recipe["result"], "count": 1})
+            trader_message = f"Furnace smelted {recipe['name']}."
+            play_sound("craft")
+            return True
+    trader_message = "Furnace can smelt ore or Cobblestone."
+    play_sound("click")
+    return False
+
+def use_stonecutter_block():
+    global trader_message
+    if count_item(29) >= 6 and inventory_has_room({"id": 56, "count": 6}):
+        consume_item(29, 6)
+        add_to_inventory({"id": 56, "count": 6})
+        trader_message = "Stonecutter made Cobblestone Wall x6."
+        play_sound("craft")
+        return True
+    if count_item(3) >= 3 and inventory_has_room({"id": 64, "count": 3}):
+        consume_item(3, 3)
+        add_to_inventory({"id": 64, "count": 3})
+        trader_message = "Stonecutter polished Stone into Smooth Stone."
+        play_sound("craft")
+        return True
+    trader_message = "Stonecutter needs Cobblestone x6 or Stone x3."
+    play_sound("click")
+    return False
+
+def use_lever_block(abs_block_x, block_y):
+    global trader_message
+    torch_y = block_y - 1
+    if int(get_block_at(abs_block_x, torch_y)) == 16:
+        set_block_at(abs_block_x, torch_y, 0)
+        trader_message = "Lever turned the signal off."
+    elif int(get_block_at(abs_block_x, torch_y)) in NON_SOLID_BLOCKS:
+        set_block_at(abs_block_x, torch_y, 16)
+        trader_message = "Lever turned the signal on."
+    else:
+        trader_message = "Lever needs empty space above."
+    play_sound("place")
+    return True
+
+def use_enchanting_table():
+    global player_xp, trader_message
+    selected_id = get_selected_item_id()
+    if selected_id not in ENCHANTABLE_ITEMS:
+        trader_message = "Enchanting Table needs a tool or weapon in hand."
+        play_sound("click")
+        return False
+    if selected_id in enchanted_item_ids:
+        trader_message = f"{ITEM_NAMES.get(selected_id, 'Item')} is already enchanted."
+        play_sound("click")
+        return False
+    if player_xp < 5:
+        trader_message = "Enchanting needs current XP 5."
+        play_sound("click")
+        return False
+    player_xp -= 5
+    enchanted_item_ids.append(selected_id)
+    trader_message = f"Enchanted {ITEM_NAMES.get(selected_id, 'Item')}."
+    play_sound("craft")
+    return True
+
+def use_jukebox_block():
+    global trader_message
+    play_sound("open")
+    add_player_xp(1)
+    trader_message = "Jukebox played a song. +1 XP."
     return True
 
 def xp_to_next_level(level):
@@ -960,6 +1135,8 @@ def create_chest_loot():
         {"id": 18, "count": random.randint(1, 3)},
         {"id": 35, "count": random.randint(1, 2)},
         {"id": 41, "count": 1},
+        {"id": 65, "count": 1},
+        {"id": 66, "count": random.randint(1, 2)},
     ]
     random.shuffle(possible)
     return possible[:random.randint(2, 4)]
@@ -973,6 +1150,8 @@ def create_airdrop_loot():
         {"id": 18, "count": random.randint(2, 5)},
         {"id": 35, "count": random.randint(1, 4)},
         {"id": 24, "count": 1},
+        {"id": 65, "count": 1},
+        {"id": 66, "count": random.randint(1, 3)},
         {"id": random.choice([19, 21, 30, 32, 41, 42]), "count": 1},
     ]
     random.shuffle(possible)
@@ -1370,6 +1549,7 @@ def save_game():
         "player_abs_px": player_abs_px, "player_py": player_py, "seed": WORLD_SEED,
         "hp": hp, "hunger": hunger, "player_level": player_level,
         "player_xp": player_xp, "money": money, "inventory": inventory,
+        "equipped_armor": equipped_armor, "enchanted_item_ids": enchanted_item_ids,
         "crafting_grid": crafting_grid, "crafting_table_grid": crafting_table_grid,
         "cursor_item": cursor_item, "covered_blocks": covered_blocks,
         "world_time": world_time, "mobs": mobs, "animals": animals,
@@ -1384,7 +1564,7 @@ def save_game():
     print("✅ 無限區塊存檔成功！")
 
 def load_game():
-    global active_chunks, saved_chunks, covered_blocks, player_abs_px, player_py, WORLD_SEED, hp, hunger, player_level, player_xp, money, inventory, crafting_grid, crafting_table_grid, cursor_item, world_time, mobs, animals, birds, planes, supply_planes, supply_crates, sunbirds, npcs, projectiles, structures, chests, dropped_items
+    global active_chunks, saved_chunks, covered_blocks, player_abs_px, player_py, WORLD_SEED, hp, hunger, player_level, player_xp, money, inventory, equipped_armor, enchanted_item_ids, crafting_grid, crafting_table_grid, cursor_item, world_time, mobs, animals, birds, planes, supply_planes, supply_crates, sunbirds, npcs, projectiles, structures, chests, dropped_items
     if os.path.exists(SAVE_FILE):
         try:
             with open(SAVE_FILE, "r") as f: 
@@ -1395,6 +1575,8 @@ def load_game():
             player_level = save_data.get("player_level", player_level)
             player_xp = save_data.get("player_xp", player_xp)
             money = save_data.get("money", money)
+            equipped_armor = save_data.get("equipped_armor", equipped_armor)
+            enchanted_item_ids = save_data.get("enchanted_item_ids", enchanted_item_ids)
             crafting_grid = save_data.get("crafting_grid", crafting_grid)
             crafting_table_grid = save_data.get("crafting_table_grid", crafting_table_grid)
             cursor_item = save_data.get("cursor_item", cursor_item)
@@ -1461,12 +1643,42 @@ def add_to_inventory(item):
 def has_starter_gun():
     return any(slot["count"] > 0 and slot["id"] in GUN_STATS for slot in inventory)
 
+def hotbar_indices():
+    return range(HOTBAR_START, HOTBAR_START + HOTBAR_SIZE)
+
+def hotbar_has_item(item_id):
+    return any(inventory[i]["id"] == item_id and inventory[i]["count"] > 0 for i in hotbar_indices())
+
+def move_item_to_hotbar(item_id, preferred_index):
+    if hotbar_has_item(item_id):
+        return True
+    source_idx = None
+    for idx, slot in enumerate(inventory):
+        if slot["id"] == item_id and slot["count"] > 0:
+            source_idx = idx
+            break
+    if source_idx is None:
+        return False
+    target_idx = preferred_index if is_empty(inventory[preferred_index]) else None
+    if target_idx is None:
+        for idx in hotbar_indices():
+            if is_empty(inventory[idx]):
+                target_idx = idx
+                break
+    if target_idx is None:
+        return False
+    inventory[source_idx], inventory[target_idx] = inventory[target_idx], inventory[source_idx]
+    return True
+
 def ensure_starter_kit():
     had_gun = has_starter_gun()
     if not had_gun:
         add_to_inventory({"id": 41, "count": 1})
     if not had_gun and count_item(40) < 24:
         add_to_inventory({"id": 40, "count": 24 - count_item(40)})
+    move_item_to_hotbar(41, HOTBAR_START)
+    move_item_to_hotbar(40, HOTBAR_START + 1)
+    move_item_to_hotbar(1, HOTBAR_START + 2)
 
 def inventory_has_room(item):
     room = 0
@@ -1692,7 +1904,7 @@ while running:
                     trader_message = ""
                     play_sound("close")
             elif pygame.K_1 <= event.key <= pygame.K_9: 
-                selected_slot = event.key - pygame.K_1
+                selected_slot = HOTBAR_START + (event.key - pygame.K_1)
             elif event.key == pygame.K_w:
                 if is_grounded: 
                     vel_y = JUMP_FORCE
@@ -1776,9 +1988,26 @@ while running:
                     check_crafting_recipes()
                     play_sound("open")
                     continue
+                if target_block == 52:
+                    use_furnace_block()
+                    continue
+                if target_block == 54:
+                    use_stonecutter_block()
+                    continue
+                if target_block == 55:
+                    use_lever_block(target_abs_block_x, target_block_y)
+                    continue
+                if target_block == 62:
+                    use_enchanting_table()
+                    continue
+                if target_block == 63:
+                    use_jukebox_block()
+                    continue
 
                 item = inventory[selected_slot]
                 if eat_selected_food():
+                    continue
+                if equip_selected_armor():
                     continue
                 if item["id"] == 46:
                     ground_y = target_block_y
@@ -1818,7 +2047,7 @@ while running:
         is_sprinting = keys[pygame.K_LCTRL] or keys[pygame.K_RCTRL]
         is_swimming = in_water and is_sprinting
         
-        current_max_speed = SNEAK_SPEED if is_sneaking else (SPRINT_SPEED if is_sprinting else WALK_SPEED)
+        current_max_speed = SNEAK_SPEED if is_sneaking else (SPRINT_SPEED if is_sprinting and hunger > 0 else WALK_SPEED)
         if in_water: 
             current_max_speed *= 0.85 if is_swimming else 0.6
         
@@ -1876,6 +2105,7 @@ while running:
                     add_to_inventory({"id": drop_id, "count": 1})
                     play_sound("break")
 
+        update_hunger(is_sprinting and abs(vel_x) > 1.2)
         update_mobs()
         update_animals()
         update_birds()

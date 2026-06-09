@@ -14,6 +14,7 @@ STATE_INVENTORY = 2
 STATE_CRAFTING_TABLE = 3
 STATE_TRADER = 4
 inventory_slots = 9
+HOTBAR_START = 27
 
 MAX_STACK = 64
 SLOT_SIZE = 46
@@ -178,11 +179,77 @@ def create_texture(block_id):
         cv2.circle(tex, (27, 15), 6, body, -1)
         cv2.rectangle(tex, (10, 27), (22, 32), detail, -1)
         cv2.circle(tex, (30, 14), 2, (255, 255, 255), -1)
+    elif block_id == 52:
+        tex[:] = (70, 70, 70)
+        cv2.rectangle(tex, (5, 7), (35, 34), (95, 95, 95), -1)
+        cv2.rectangle(tex, (10, 14), (30, 29), (25, 25, 25), -1)
+        cv2.circle(tex, (20, 22), 5, (30, 120, 240), -1)
+    elif block_id == 53:
+        tex[:] = (80, 80, 80)
+        cv2.line(tex, (20, 12), (20, 34), (30, 55, 90), 4)
+        cv2.line(tex, (12, 10), (29, 10), (155, 155, 155), 5)
+    elif block_id == 54:
+        tex[:] = (88, 88, 88)
+        cv2.rectangle(tex, (5, 24), (35, 34), (115, 115, 115), -1)
+        cv2.rectangle(tex, (8, 10), (32, 24), (145, 145, 145), -1)
+        cv2.line(tex, (10, 12), (30, 22), (210, 210, 220), 2)
+    elif block_id == 55:
+        tex[:] = (80, 80, 80)
+        cv2.line(tex, (11, 27), (29, 13), (35, 70, 120), 4)
+        cv2.circle(tex, (20, 31), 6, (105, 105, 105), -1)
+    elif block_id == 56:
+        tex[:] = (96, 96, 96)
+        for x in range(4, 36, 12):
+            cv2.rectangle(tex, (x, 9), (x+8, 35), (120, 120, 120), -1)
+        cv2.rectangle(tex, (3, 25), (37, 35), (85, 85, 85), -1)
+    elif block_id == 57:
+        tex[:] = (70, 70, 70)
+        cv2.rectangle(tex, (6, 6), (34, 34), (255, 230, 90), -1)
+        cv2.rectangle(tex, (10, 10), (30, 30), (210, 190, 70), 2)
+    elif block_id in (58, 59, 60, 61):
+        tex[:] = (70, 70, 70)
+        color = (255, 230, 90)
+        if block_id == 58:
+            cv2.ellipse(tex, (20, 20), (14, 12), 180, 0, 180, color, 5)
+            cv2.rectangle(tex, (10, 20), (30, 28), color, -1)
+        elif block_id == 59:
+            cv2.rectangle(tex, (10, 9), (30, 33), color, -1)
+            cv2.rectangle(tex, (15, 14), (25, 28), (70,70,70), -1)
+        elif block_id == 60:
+            cv2.rectangle(tex, (9, 8), (18, 34), color, -1)
+            cv2.rectangle(tex, (22, 8), (31, 34), color, -1)
+            cv2.rectangle(tex, (14, 8), (26, 18), color, -1)
+        else:
+            cv2.rectangle(tex, (9, 21), (18, 34), color, -1)
+            cv2.rectangle(tex, (22, 21), (31, 34), color, -1)
+    elif block_id == 62:
+        tex[:] = (55, 45, 75)
+        cv2.rectangle(tex, (6, 22), (34, 34), (35, 25, 55), -1)
+        cv2.circle(tex, (20, 17), 9, (255, 230, 90), -1)
+        cv2.circle(tex, (20, 17), 5, (90, 60, 180), -1)
+    elif block_id == 63:
+        tex[:] = (60, 120, 190)
+        cv2.rectangle(tex, (5, 8), (35, 34), (45, 85, 140), -1)
+        cv2.circle(tex, (20, 21), 8, (255, 230, 90), -1)
+        cv2.circle(tex, (20, 21), 3, (70, 70, 70), -1)
+    elif block_id == 64:
+        tex[:] = (150, 150, 150)
+        cv2.rectangle(tex, (4, 4), (36, 36), (170, 170, 170), -1)
+        cv2.line(tex, (6, 18), (34, 18), (125, 125, 125), 1)
+    elif block_id == 65:
+        tex[:] = (80, 80, 80)
+        cv2.rectangle(tex, (9, 8), (31, 33), (235, 235, 210), -1)
+        cv2.line(tex, (20, 8), (20, 33), (120, 120, 100), 1)
+        cv2.line(tex, (12, 15), (18, 15), (100, 100, 90), 1)
+    elif block_id == 66:
+        tex[:] = (38, 25, 55)
+        for _ in range(10):
+            cv2.circle(tex, (random.randint(4, 35), random.randint(4, 35)), 2, (80, 45, 125), -1)
         
     cv2.rectangle(tex, (0,0), (TILE_SIZE-1, TILE_SIZE-1), (0,0,0), 1)
     return tex
 
-for i in range(1, 52): textures[i] = create_texture(i)
+for i in range(1, 67): textures[i] = create_texture(i)
 
 def get_menu_action(mouse_x, mouse_y):
     buttons = [
@@ -222,13 +289,13 @@ def get_crafting_output_rect():
 
 def get_table_slot_rect(index):
     px, py, _, _ = get_inventory_panel_rect()
-    craft_start_x, craft_start_y = px + 95, py + 70
+    craft_start_x, craft_start_y = px + 82, py + 78
     col, row = index % 3, index // 3
     return craft_start_x + col * SLOT_STEP, craft_start_y + row * SLOT_STEP, SLOT_SIZE, SLOT_SIZE
 
 def get_table_output_rect():
     px, py, _, _ = get_inventory_panel_rect()
-    return px + 370, py + 125, 50, 50
+    return px + 430, py + 132, 50, 50
 
 def rect_contains(rect, mouse_x, mouse_y):
     x, y, w, h = rect
@@ -279,6 +346,8 @@ def get_hovered_item(mouse_x, mouse_y, inventory=None, crafting_grid=None, table
     return None
 
 def get_item_rarity_color(item_id):
+    if item_id in (57, 58, 59, 60, 61, 62, 63, 66):
+        return (255, 235, 90)
     if item_id in (47, 48, 49, 50, 51):
         return (120, 230, 160)
     if item_id in (41, 42, 43, 44, 46):
@@ -316,6 +385,22 @@ def get_item_tip_lines(item, item_names, tool_speeds=None, weapon_damage=None, p
         lines.append("Placeable block")
     if item_id in (47, 48, 49, 50, 51):
         lines.append("Food: right click to eat")
+    usage_notes = {
+        52: "Use: smelts ore/Cobblestone with Coal",
+        54: "Use: cuts Cobblestone into walls",
+        55: "Use: toggles a signal torch above it",
+        58: "Use: right click to equip armor",
+        59: "Use: right click to equip armor",
+        60: "Use: right click to equip armor",
+        61: "Use: right click to equip armor",
+        62: "Use: enchant held tool/weapon for XP 5",
+        63: "Use: play music for a tiny XP boost",
+        64: "Material: Stonecutter recipe",
+        65: "Material: Enchanting Table recipe",
+        66: "Material: Enchanting Table recipe",
+    }
+    if item_id in usage_notes:
+        lines.append(usage_notes[item_id])
     return lines
 
 def draw_item_tooltip(canvas, item, mouse_x, mouse_y, item_names, tool_speeds=None, weapon_damage=None, placeable_blocks=None):
@@ -370,11 +455,12 @@ def draw_hud(canvas, hp, hunger, inventory, selected_slot, level=1, xp=0, xp_nex
     
     for i in range(inventory_slots):
         sx, sy = bar_x + i * 42, bar_y
+        item_index = HOTBAR_START + i
         cv2.rectangle(canvas, (sx, sy), (sx+38, sy+38), (100,100,100), -1)
-        if i == selected_slot: cv2.rectangle(canvas, (sx-2, sy-2), (sx+40, sy+40), (255,255,255), 2)
+        if item_index == selected_slot: cv2.rectangle(canvas, (sx-2, sy-2), (sx+40, sy+40), (255,255,255), 2)
         else: cv2.rectangle(canvas, (sx, sy), (sx+38, sy+38), (50,50,50), 2)
             
-        item = inventory[i]
+        item = inventory[item_index]
         if item["id"] != 0 and item["id"] in textures:
             mini_tex = cv2.resize(textures[item["id"]], (24, 24))
             canvas[sy+7:sy+31, sx+7:sx+31] = mini_tex
@@ -482,6 +568,12 @@ def draw_crafting_table_screen(base_canvas, inventory, table_grid, table_output,
     cv2.rectangle(canvas, (px + 300, py + 16), (px + panel_w - 18, py + 45), (90, 90, 90), -1)
     cv2.putText(canvas, name_text[:28], (px + 312, py + 37), cv2.FONT_HERSHEY_SIMPLEX, 0.5, get_item_rarity_color(selected_item["id"]) if selected_item else (230, 230, 230), 1)
 
+    grid_x, grid_y = get_table_slot_rect(0)[:2]
+    cv2.rectangle(canvas, (grid_x - 18, grid_y - 18), (grid_x + SLOT_STEP * 2 + SLOT_SIZE + 18, grid_y + SLOT_STEP * 2 + SLOT_SIZE + 18), (90, 72, 52), -1)
+    cv2.rectangle(canvas, (grid_x - 18, grid_y - 18), (grid_x + SLOT_STEP * 2 + SLOT_SIZE + 18, grid_y + SLOT_STEP * 2 + SLOT_SIZE + 18), (45, 35, 25), 2)
+    for strip_y in range(grid_y - 12, grid_y + SLOT_STEP * 2 + SLOT_SIZE + 12, 18):
+        cv2.line(canvas, (grid_x - 12, strip_y), (grid_x + SLOT_STEP * 2 + SLOT_SIZE + 12, strip_y), (70, 52, 36), 1)
+
     for i in range(9):
         sx, sy, sw, sh = get_table_slot_rect(i)
         bg_color = (180, 180, 180) if rect_contains((sx, sy, sw, sh), mouse_x, mouse_y) else (100, 100, 100)
@@ -489,12 +581,13 @@ def draw_crafting_table_screen(base_canvas, inventory, table_grid, table_output,
         cv2.rectangle(canvas, (sx, sy), (sx + sw, sy + sh), (40, 40, 40), 1)
         draw_item_stack(canvas, table_grid[i], sx, sy)
 
-    arrow_x, arrow_y = px + 305, py + 148
-    cv2.line(canvas, (arrow_x, arrow_y), (arrow_x + 45, arrow_y), (50, 50, 50), 4)
-    cv2.line(canvas, (arrow_x + 35, arrow_y - 10), (arrow_x + 45, arrow_y), (50, 50, 50), 4)
-    cv2.line(canvas, (arrow_x + 35, arrow_y + 10), (arrow_x + 45, arrow_y), (50, 50, 50), 4)
-
     out_x, out_y, out_w, out_h = get_table_output_rect()
+    arrow_x, arrow_y = px + 300, out_y + out_h // 2
+    arrow_end = out_x - 18
+    cv2.line(canvas, (arrow_x, arrow_y), (arrow_end, arrow_y), (50, 50, 50), 4)
+    cv2.line(canvas, (arrow_end - 12, arrow_y - 10), (arrow_end, arrow_y), (50, 50, 50), 4)
+    cv2.line(canvas, (arrow_end - 12, arrow_y + 10), (arrow_end, arrow_y), (50, 50, 50), 4)
+
     bg_out = (200, 200, 200) if rect_contains((out_x, out_y, out_w, out_h), mouse_x, mouse_y) else (120, 120, 120)
     cv2.rectangle(canvas, (out_x, out_y), (out_x + out_w, out_y + out_h), bg_out, -1)
     cv2.rectangle(canvas, (out_x, out_y), (out_x + out_w, out_y + out_h), (20, 20, 20), 2)
