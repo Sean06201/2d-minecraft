@@ -1105,7 +1105,8 @@ def draw_game_scene(sky_color, visible_world, player_data, mining_data, particle
                 hp_w = max(0, min(86, int(mob.get("hp", 0) / max_hp * 86)))
                 cv2.rectangle(canvas, (spx-4, spy-22), (spx+90, spy-12), (15,15,20), -1)
                 cv2.rectangle(canvas, (spx, spy-20), (spx+hp_w, spy-14), (40,40,220), -1)
-                cv2.putText(canvas, "BOSS", (spx+18, spy-27), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (80,220,255), 1)
+                tier = max(1, int(mob.get("tier", 1)))
+                cv2.putText(canvas, f"BOSS T{tier}", (spx+8, spy-27), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (80,220,255), 1)
                 continue
             if mob_type == "skeleton":
                 body = (210, 210, 210)

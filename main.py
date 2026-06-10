@@ -328,6 +328,7 @@ last_wander_npc_spawn_frame = 0
 last_boss_spawn_frame = 0
 last_player_damage_frame = 0
 last_resource_cleanup_frame = 0
+boss_spawn_count = 0
 trader_message = ""
 
 DIAMOND_ARMOR_SLOTS = {58: "helmet", 59: "chestplate", 60: "leggings", 61: "boots"}
@@ -1036,6 +1037,17 @@ def add_kill_rewards(mob_type):
     money += reward["money"]
     return reward
 
+def add_mob_kill_rewards(mob):
+    global money
+    reward = MOB_REWARDS.get(mob.get("type", "zombie"), {"xp": 3, "money": 2}).copy()
+    if mob.get("type") == "ancient_boss":
+        tier = max(1, int(mob.get("tier", 1)))
+        reward["xp"] += (tier - 1) * 18
+        reward["money"] += (tier - 1) * 28
+    add_player_xp(reward["xp"])
+    money += reward["money"]
+    return reward
+
 def ore_cost_text(ores):
     parts = []
     for item_id, amount in ores.items():
@@ -1093,11 +1105,12 @@ def buy_trade(index):
 
 def drop_mob_loot(mob):
     if mob.get("type") == "ancient_boss":
-        drop_item_stack({"id": 40, "count": random.randint(32, 56)}, mob["x"], mob["y"])
-        drop_item_stack({"id": 24, "count": random.randint(2, 4)}, mob["x"], mob["y"])
-        drop_item_stack({"id": 35, "count": random.randint(5, 9)}, mob["x"], mob["y"])
+        tier = max(1, int(mob.get("tier", 1)))
+        drop_item_stack({"id": 40, "count": random.randint(32, 56) + tier * 6}, mob["x"], mob["y"])
+        drop_item_stack({"id": 24, "count": random.randint(2, 4) + tier // 3}, mob["x"], mob["y"])
+        drop_item_stack({"id": 35, "count": random.randint(5, 9) + tier}, mob["x"], mob["y"])
         drop_item_stack({"id": 71, "count": 1}, mob["x"], mob["y"])
-        if random.random() < 0.55:
+        if random.random() < min(0.85, 0.50 + tier * 0.035):
             drop_item_stack({"id": 44, "count": 1}, mob["x"], mob["y"])
         return
     bullet_count = random.randint(2, 5)
@@ -1130,7 +1143,7 @@ def damage_mob(index, damage, source_x, source_y, knockback=3.0):
     mob["vx"] = mob.get("vx", 0.0) + dx / length * knockback
     mob["vy"] = min(mob.get("vy", 0.0), -2.4) + dy / length * 1.4
     if mob["hp"] <= 0:
-        reward = add_kill_rewards(mob.get("type", "zombie"))
+        reward = add_mob_kill_rewards(mob)
         spawn_blood_particles(mob["x"] + render.TILE_SIZE / 2, mob["y"] + render.TILE_SIZE / 2, source_x, source_y)
         drop_mob_loot(mob)
         mobs.pop(index)
@@ -1332,8 +1345,22 @@ def spawn_cave_monster():
         "phase": random.random() * math.pi * 2,
     })
 
+def get_next_boss_tier():
+    level_bonus = max(0, player_level - BOSS_UNLOCK_LEVEL) // 3
+    return max(1, boss_spawn_count + 1 + level_bonus)
+
+def get_boss_stats(tier):
+    tier = max(1, int(tier))
+    return {
+        "tier": tier,
+        "hp": 120 + (tier - 1) * 34,
+        "damage": min(10, 4 + (tier - 1) // 2),
+        "speed": min(1.65, 0.9 + (tier - 1) * 0.05),
+        "jump_chance": min(0.04, 0.018 + (tier - 1) * 0.002),
+    }
+
 def spawn_boss():
-    global trader_message
+    global trader_message, boss_spawn_count
     if player_level < BOSS_UNLOCK_LEVEL:
         return False
     if len(mobs) >= MAX_MOBS:
@@ -1351,18 +1378,24 @@ def spawn_boss():
         spawn_y = find_spawn_y(spawn_block_x)
         if spawn_y is None:
             continue
+        stats = get_boss_stats(get_next_boss_tier())
         mobs.append({
             "type": "ancient_boss",
             "x": float(spawn_block_x * render.TILE_SIZE),
             "y": float(spawn_y - render.TILE_SIZE),
             "vx": 0.0,
             "vy": 0.0,
-            "hp": 120,
-            "max_hp": 120,
+            "hp": stats["hp"],
+            "max_hp": stats["hp"],
+            "tier": stats["tier"],
+            "damage": stats["damage"],
+            "speed": stats["speed"],
+            "jump_chance": stats["jump_chance"],
             "phase": random.random() * math.pi * 2,
             "aggro": True,
         })
-        trader_message = "A Level 15 boss has appeared nearby."
+        boss_spawn_count += 1
+        trader_message = f"Tier {stats['tier']} boss has appeared nearby."
         play_sound("break")
         return True
     return False
@@ -1709,9 +1742,10 @@ def update_mobs():
 
         if kind == "ancient_boss":
             if mob["aggro"]:
-                mob["vx"] = max(-0.9, min(0.9, mob["vx"] + (0.065 if dx > 0 else -0.065)))
-                if abs(dx) < render.TILE_SIZE * 4 and random.random() < 0.018:
-                    mob["vy"] = min(mob.get("vy", 0.0), -7.2)
+                boss_speed = mob.get("speed", 0.9)
+                mob["vx"] = max(-boss_speed, min(boss_speed, mob["vx"] + (0.065 if dx > 0 else -0.065)))
+                if abs(dx) < render.TILE_SIZE * 4 and random.random() < mob.get("jump_chance", 0.018):
+                    mob["vy"] = min(mob.get("vy", 0.0), -7.2 - min(2.0, mob.get("tier", 1) * 0.12))
 
             new_x = mob["x"] + mob["vx"]
             if not check_collision(new_x, mob["y"]):
@@ -1777,7 +1811,7 @@ def update_mobs():
         contact_y = 70 if kind == "ancient_boss" else 36
         if abs((mob["x"] + 20) - (player_abs_px + 20)) < contact_x and abs((mob["y"] + 20) - (player_py + 20)) < contact_y:
             if frame_count - last_player_damage_frame > 45:
-                damage = {"zombie": 2, "cave_zombie": 2, "cave_spider": 2, "green_jet": 2, "crystal_wisp": 2, "slime": 1, "skeleton": 1, "ancient_boss": 4}.get(kind, 1)
+                damage = mob.get("damage", 4) if kind == "ancient_boss" else {"zombie": 2, "cave_zombie": 2, "cave_spider": 2, "green_jet": 2, "crystal_wisp": 2, "slime": 1, "skeleton": 1}.get(kind, 1)
                 damage_player(damage, mob["x"] + render.TILE_SIZE / 2, mob["y"] + render.TILE_SIZE / 2)
                 last_player_damage_frame = frame_count
                 play_sound("break")
@@ -1949,7 +1983,8 @@ def save_game():
     save_data = {
         "player_abs_px": player_abs_px, "player_py": player_py, "seed": WORLD_SEED,
         "hp": hp, "hunger": hunger, "player_level": player_level,
-        "player_xp": player_xp, "money": money, "inventory": inventory,
+        "player_xp": player_xp, "money": money, "boss_spawn_count": boss_spawn_count,
+        "inventory": inventory,
         "equipped_armor": equipped_armor, "enchanted_item_ids": enchanted_item_ids,
         "crafting_grid": crafting_grid, "crafting_table_grid": crafting_table_grid,
         "furnace_slots": furnace_slots, "furnace_progress": furnace_progress,
@@ -1968,7 +2003,7 @@ def save_game():
     print("✅ 無限區塊存檔成功！")
 
 def load_game():
-    global active_chunks, saved_chunks, dirty_chunks, covered_blocks, player_abs_px, player_py, WORLD_SEED, hp, hunger, player_level, player_xp, money, inventory, equipped_armor, enchanted_item_ids, crafting_grid, crafting_table_grid, furnace_slots, furnace_progress, cursor_item, planted_crops, village_stats, world_time, mobs, animals, birds, planes, supply_planes, supply_crates, sunbirds, npcs, projectiles, structures, chests, dropped_items
+    global active_chunks, saved_chunks, dirty_chunks, covered_blocks, player_abs_px, player_py, WORLD_SEED, hp, hunger, player_level, player_xp, money, boss_spawn_count, inventory, equipped_armor, enchanted_item_ids, crafting_grid, crafting_table_grid, furnace_slots, furnace_progress, cursor_item, planted_crops, village_stats, world_time, mobs, animals, birds, planes, supply_planes, supply_crates, sunbirds, npcs, projectiles, structures, chests, dropped_items
     if os.path.exists(SAVE_FILE):
         try:
             with open(SAVE_FILE, "r") as f: 
@@ -1979,6 +2014,7 @@ def load_game():
             player_level = save_data.get("player_level", player_level)
             player_xp = save_data.get("player_xp", player_xp)
             money = save_data.get("money", money)
+            boss_spawn_count = save_data.get("boss_spawn_count", boss_spawn_count)
             equipped_armor = save_data.get("equipped_armor", equipped_armor)
             enchanted_item_ids = save_data.get("enchanted_item_ids", enchanted_item_ids)
             crafting_grid = save_data.get("crafting_grid", crafting_grid)
@@ -2300,6 +2336,25 @@ def handle_slot_click(container, index, button):
     if button in (1, 3):
         play_sound("click")
 
+def update_world_systems(update_hunger_meter=False, is_sprinting_now=False):
+    if update_hunger_meter:
+        update_hunger(is_sprinting_now)
+    update_crops()
+    update_village()
+    update_mobs()
+    update_animals()
+    update_birds()
+    update_planes()
+    update_supply_planes()
+    update_supply_crates()
+    update_sunbirds()
+    update_npcs()
+    update_projectiles()
+    update_dropped_items()
+    update_particles()
+    handle_player_death()
+    cleanup_runtime_resources()
+
 loaded_game = load_game()
 if not loaded_game:
     player_abs_px, player_py = find_safe_player_spawn()
@@ -2338,7 +2393,9 @@ while running:
     target_block = int(get_block_at(target_abs_block_x, target_block_y))
     target_data = [current_state == render.STATE_GAME, target_abs_block_x - start_block_x, target_block_y - start_block_y]
 
-    if current_state == render.STATE_GAME:
+    world_updates_active = current_state in (render.STATE_GAME, render.STATE_CHEST)
+
+    if world_updates_active:
         if is_night() and frame_count - last_mob_spawn_frame > MOB_SPAWN_INTERVAL:
             spawn_monster()
             last_mob_spawn_frame = frame_count
@@ -2655,21 +2712,7 @@ while running:
                         damage_selected_item(1)
                     play_sound("break")
 
-        update_hunger(is_sprinting and abs(vel_x) > 1.2)
-        update_crops()
-        update_village()
-        update_mobs()
-        update_animals()
-        update_birds()
-        update_planes()
-        update_supply_planes()
-        update_supply_crates()
-        update_sunbirds()
-        update_npcs()
-        update_projectiles()
-        update_dropped_items()
-        update_particles()
-        handle_player_death()
+        update_world_systems(True, is_sprinting and abs(vel_x) > 1.2)
 
         if is_grounded and abs(vel_x) > 0.6 and frame_count - last_step_frame > 18:
             play_sound("step")
@@ -2678,7 +2721,10 @@ while running:
             play_sound("swim")
             last_swim_frame = frame_count
 
-        cleanup_runtime_resources()
+    elif current_state == render.STATE_CHEST:
+        vel_x = 0
+        is_mining = False
+        update_world_systems(False, False)
 
     # 3. 轉發給 OpenCV 渲染
     p_data = [player_abs_px, player_py, vel_x if current_state == render.STATE_GAME else 0, is_grounded, facing_right, is_swimming]
