@@ -1251,7 +1251,7 @@ def update_dropped_items():
                 pickup = {"id": drop["id"], "count": drop["count"]}
                 if "durability" in drop:
                     pickup["durability"] = drop["durability"]
-                remaining = add_to_inventory(pickup)
+                remaining = add_to_inventory(pickup, prefer_hotbar=True)
                 if is_empty(remaining):
                     dropped_items.remove(drop)
                     play_sound("click")
@@ -2095,13 +2095,21 @@ def damage_selected_item(amount=1):
 def can_stack(a, b):
     return not is_empty(a) and not is_empty(b) and a["id"] == b["id"] and get_max_durability(a["id"]) == 0
 
-def add_to_inventory(item):
+def get_inventory_add_order(prefer_hotbar=False):
+    if not prefer_hotbar:
+        return range(len(inventory))
+    hotbar = list(range(HOTBAR_START, HOTBAR_START + HOTBAR_SIZE))
+    backpack = [idx for idx in range(len(inventory)) if idx not in hotbar]
+    return hotbar + backpack
+
+def add_to_inventory(item, prefer_hotbar=False):
     remaining = copy_item(item)
     if is_empty(remaining):
         return empty_item()
     ensure_item_durability(remaining)
 
-    for slot in inventory:
+    for idx in get_inventory_add_order(prefer_hotbar):
+        slot = inventory[idx]
         if can_stack(slot, remaining) and slot["count"] < MAX_STACK:
             moved = min(MAX_STACK - slot["count"], remaining["count"])
             slot["count"] += moved
@@ -2109,7 +2117,8 @@ def add_to_inventory(item):
             if remaining["count"] <= 0:
                 return empty_item()
 
-    for slot in inventory:
+    for idx in get_inventory_add_order(prefer_hotbar):
+        slot = inventory[idx]
         if is_empty(slot):
             moved = min(MAX_STACK, remaining["count"])
             slot["id"], slot["count"] = remaining["id"], moved

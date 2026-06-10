@@ -913,6 +913,41 @@ def draw_chest_screen(base_canvas, inventory, chest_slots, mouse_x, mouse_y, cur
     draw_item_tooltip(canvas, selected_item, mouse_x, mouse_y, item_names, tool_speeds, weapon_damage, placeable_blocks)
     return canvas
 
+def get_boss_visuals(tier):
+    forms = [
+        {
+            "body": (72, 48, 128),
+            "armor": (35, 70, 150),
+            "limb": (45, 45, 95),
+            "glow": (70, 220, 255),
+            "shadow": (40, 40, 80),
+        },
+        {
+            "body": (80, 34, 34),
+            "armor": (55, 95, 165),
+            "limb": (86, 38, 38),
+            "glow": (45, 210, 255),
+            "shadow": (45, 20, 50),
+        },
+        {
+            "body": (34, 86, 58),
+            "armor": (120, 94, 32),
+            "limb": (28, 72, 48),
+            "glow": (70, 255, 120),
+            "shadow": (20, 55, 35),
+        },
+        {
+            "body": (48, 40, 58),
+            "armor": (145, 60, 175),
+            "limb": (32, 28, 48),
+            "glow": (255, 90, 220),
+            "shadow": (24, 20, 38),
+        },
+    ]
+    visuals = forms[(max(1, tier) - 1) % len(forms)].copy()
+    visuals["rank"] = min(4, 1 + (max(1, tier) - 1) // 3)
+    return visuals
+
 # --- 【無限世界核心修復】現在 draw_game_scene 只負責渲染裁剪後的 visible_world 矩陣 ---
 def draw_game_scene(sky_color, visible_world, player_data, mining_data, particles, frame_count, camera_subpixel_x, camera_subpixel_y, target_data=None, mobs=None, animals=None, birds=None, dropped_items=None, planes=None, sunbirds=None, npcs=None, projectiles=None, supply_planes=None, supply_crates=None):
     bgr_sky = (sky_color[2], sky_color[1], sky_color[0])
@@ -1086,27 +1121,46 @@ def draw_game_scene(sky_color, visible_world, player_data, mining_data, particle
         if -TILE_SIZE * 2 <= spx < WIDTH + TILE_SIZE and -TILE_SIZE * 2 <= spy < HEIGHT + TILE_SIZE:
             mob_type = mob.get("type")
             if mob_type == "ancient_boss":
+                tier = max(1, int(mob.get("tier", 1)))
+                visuals = get_boss_visuals(tier)
+                rank = visuals["rank"]
                 pulse = int(np.sin(frame_count * 0.12 + mob.get("phase", 0)) * 5)
-                body = (72, 48, 128)
-                armor = (35, 70, 150)
-                glow = (70, 220, 255)
+                wing_sway = int(np.sin(frame_count * 0.08 + mob.get("phase", 0)) * (3 + rank))
+                body = visuals["body"]
+                armor = visuals["armor"]
+                limb = visuals["limb"]
+                glow = visuals["glow"]
+                shadow = visuals["shadow"]
+                aura = int(6 + rank * 2 + abs(pulse) * 0.5)
+                cv2.ellipse(canvas, (spx+40, spy+58), (48+aura, 35+aura//2), 0, 0, 360, glow, 1)
+                if rank >= 2:
+                    cv2.line(canvas, (spx+6, spy+34), (spx-18, spy+22+wing_sway), shadow, 5)
+                    cv2.line(canvas, (spx+74, spy+34), (spx+98, spy+22-wing_sway), shadow, 5)
+                    cv2.line(canvas, (spx+4, spy+44), (spx-20, spy+54-wing_sway), armor, 3)
+                    cv2.line(canvas, (spx+76, spy+44), (spx+100, spy+54+wing_sway), armor, 3)
                 cv2.rectangle(canvas, (spx+2, spy+18), (spx+78, spy+84), body, -1)
                 cv2.rectangle(canvas, (spx+14, spy+2), (spx+66, spy+30), body, -1)
-                cv2.rectangle(canvas, (spx+10, spy+36), (spx+70, spy+62), armor, 2)
+                cv2.rectangle(canvas, (spx+10, spy+36), (spx+70, spy+62), armor, 2 + min(2, rank // 2))
+                cv2.rectangle(canvas, (spx+24, spy+43), (spx+56, spy+58), shadow, -1)
+                cv2.circle(canvas, (spx+40, spy+50), 7 + rank, glow, -1)
                 cv2.circle(canvas, (spx+25, spy+16), 5, glow, -1)
                 cv2.circle(canvas, (spx+55, spy+16), 5, glow, -1)
-                cv2.line(canvas, (spx+12, spy+2), (spx+2, spy-13-pulse), (40, 40, 80), 4)
-                cv2.line(canvas, (spx+68, spy+2), (spx+78, spy-13+pulse), (40, 40, 80), 4)
-                cv2.rectangle(canvas, (spx-8, spy+40), (spx+8, spy+72), (45, 45, 95), -1)
-                cv2.rectangle(canvas, (spx+72, spy+40), (spx+88, spy+72), (45, 45, 95), -1)
-                cv2.rectangle(canvas, (spx+12, spy+84), (spx+30, spy+96), (35, 35, 75), -1)
-                cv2.rectangle(canvas, (spx+50, spy+84), (spx+68, spy+96), (35, 35, 75), -1)
+                cv2.line(canvas, (spx+12, spy+2), (spx+2-rank*2, spy-13-pulse-rank*2), shadow, 4)
+                cv2.line(canvas, (spx+68, spy+2), (spx+78+rank*2, spy-13+pulse-rank*2), shadow, 4)
+                if rank >= 3:
+                    cv2.line(canvas, (spx+40, spy+2), (spx+40, spy-18+pulse), glow, 3)
+                if rank >= 4:
+                    cv2.circle(canvas, (spx+40, spy-15+pulse), 5, glow, -1)
+                    cv2.rectangle(canvas, (spx+20, spy-4), (spx+60, spy+2), armor, -1)
+                cv2.rectangle(canvas, (spx-8-rank, spy+40), (spx+8, spy+72), limb, -1)
+                cv2.rectangle(canvas, (spx+72, spy+40), (spx+88+rank, spy+72), limb, -1)
+                cv2.rectangle(canvas, (spx+12, spy+84), (spx+30, spy+96+rank), shadow, -1)
+                cv2.rectangle(canvas, (spx+50, spy+84), (spx+68, spy+96+rank), shadow, -1)
                 max_hp = max(1, mob.get("max_hp", 120))
                 hp_w = max(0, min(86, int(mob.get("hp", 0) / max_hp * 86)))
                 cv2.rectangle(canvas, (spx-4, spy-22), (spx+90, spy-12), (15,15,20), -1)
                 cv2.rectangle(canvas, (spx, spy-20), (spx+hp_w, spy-14), (40,40,220), -1)
-                tier = max(1, int(mob.get("tier", 1)))
-                cv2.putText(canvas, f"BOSS T{tier}", (spx+8, spy-27), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (80,220,255), 1)
+                cv2.putText(canvas, f"BOSS T{tier}", (spx+8, spy-27), cv2.FONT_HERSHEY_SIMPLEX, 0.45, glow, 1)
                 continue
             if mob_type == "skeleton":
                 body = (210, 210, 210)
