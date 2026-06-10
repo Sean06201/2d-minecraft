@@ -61,28 +61,43 @@ def add_caves_and_ores(chunk, rows, chunk_cols, offset_x, seed):
             if block == 0 or y < rows // 2 + 3:
                 continue
 
+            depth_ratio = y / max(1, rows - 1)
             cave_a = smooth_cave_value(absolute_x, y, seed)
             cave_b = smooth_cave_value(absolute_x + seed, y * 2, seed + 99)
-            if cave_a > 0.70 and cave_b > 0.56 and cave_noise(absolute_x, y, seed + 313) > 0.35:
+            cave_threshold = 0.76 if depth_ratio < 0.76 else 0.80
+            pocket_threshold = 0.61 if depth_ratio < 0.82 else 0.66
+            if cave_a > cave_threshold and cave_b > pocket_threshold and cave_noise(absolute_x, y, seed + 313) > 0.48:
                 chunk[y, local_x] = 0
                 continue
 
             ore_roll = cave_noise(absolute_x, y, seed + 777)
             deep_roll = cave_noise(absolute_x, y, seed + 444)
-            if block == 3 and y > rows * 0.70 and deep_roll > 0.35:
-                chunk[y, local_x] = 72
-                block = 72
-            elif block == 3 and y > rows * 0.58 and deep_roll > 0.82:
+            if block in (3, 29) and y > rows * 0.86 and deep_roll > 0.58:
+                chunk[y, local_x] = 66
+                block = 66
+            elif block in (3, 29) and y > rows * 0.76 and deep_roll > 0.30:
                 chunk[y, local_x] = 74
                 block = 74
+            elif block == 3 and y > rows * 0.62 and deep_roll > 0.28:
+                chunk[y, local_x] = 72
+                block = 72
+            elif block == 3 and y > rows * 0.54 and deep_roll > 0.84:
+                chunk[y, local_x] = 29
+                block = 29
 
-            if block in (3, 72, 74) and ore_roll > 0.992:
+            crystal_bonus = 0.003 if depth_ratio > 0.75 else 0.0
+            diamond_bonus = 0.004 if depth_ratio > 0.72 else 0.0
+            gold_bonus = 0.004 if depth_ratio > 0.62 else 0.0
+            iron_bonus = 0.006 if depth_ratio > 0.52 else 0.0
+            coal_bonus = 0.010 if depth_ratio > 0.50 else 0.0
+
+            if block in (3, 29, 72, 74, 66) and ore_roll > 0.993 - crystal_bonus:
                 chunk[y, local_x] = 73
-            elif block in (3, 72, 74) and ore_roll > 0.985:
+            elif block in (3, 29, 72, 74, 66) and ore_roll > 0.987 - diamond_bonus:
                 chunk[y, local_x] = 23
-            elif block in (3, 72, 74) and ore_roll > 0.970:
+            elif block in (3, 29, 72, 74, 66) and ore_roll > 0.972 - gold_bonus:
                 chunk[y, local_x] = 34
-            elif block in (3, 72, 74) and ore_roll > 0.955:
+            elif block in (3, 29, 72, 74, 66) and ore_roll > 0.956 - iron_bonus:
                 chunk[y, local_x] = 17
-            elif block in (3, 72, 74) and ore_roll > 0.925:
+            elif block in (3, 29, 72, 74, 66) and ore_roll > 0.928 - coal_bonus:
                 chunk[y, local_x] = 15

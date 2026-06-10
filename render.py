@@ -14,6 +14,7 @@ STATE_INVENTORY = 2
 STATE_CRAFTING_TABLE = 3
 STATE_TRADER = 4
 STATE_FURNACE = 5
+STATE_CHEST = 6
 inventory_slots = 9
 HOTBAR_START = 27
 
@@ -302,11 +303,25 @@ def create_texture(block_id):
         tex[:] = (65, 65, 65)
         cv2.ellipse(tex, (20, 22), (14, 9), 0, 0, 360, (70, 170, 220), -1)
         cv2.line(tex, (10, 21), (30, 21), (50, 130, 190), 1)
+    elif block_id in (80, 81, 82, 83, 84):
+        tex[:] = (58, 58, 58)
+        colors = {
+            80: ((90, 170, 230), (40, 90, 180)),
+            81: ((65, 130, 215), (40, 85, 170)),
+            82: ((35, 95, 185), (25, 60, 140)),
+            83: ((190, 190, 190), (120, 120, 120)),
+            84: ((45, 95, 165), (25, 55, 110)),
+        }
+        body, crust = colors[block_id]
+        cv2.ellipse(tex, (20, 21), (13, 10), -18, 0, 360, body, -1)
+        cv2.circle(tex, (27, 15), 6, body, -1)
+        cv2.line(tex, (9, 28), (30, 14), crust, 3)
+        cv2.circle(tex, (30, 14), 2, (255, 245, 190), -1)
         
     cv2.rectangle(tex, (0,0), (TILE_SIZE-1, TILE_SIZE-1), (0,0,0), 1)
     return tex
 
-for i in range(1, 80): textures[i] = create_texture(i)
+for i in range(1, 85): textures[i] = create_texture(i)
 
 def get_menu_action(mouse_x, mouse_y):
     buttons = [
@@ -366,6 +381,18 @@ def get_furnace_slot_at(mouse_x, mouse_y):
             return i
     return None
 
+def get_chest_slot_rect(index):
+    px, py, _, _ = get_inventory_panel_rect()
+    grid_start_x, grid_start_y = px + 50, py + 82
+    col, row = index % 9, index // 9
+    return grid_start_x + col * SLOT_STEP, grid_start_y + row * SLOT_STEP, SLOT_SIZE, SLOT_SIZE
+
+def get_chest_slot_at(mouse_x, mouse_y):
+    for i in range(18):
+        if rect_contains(get_chest_slot_rect(i), mouse_x, mouse_y):
+            return i
+    return None
+
 def rect_contains(rect, mouse_x, mouse_y):
     x, y, w, h = rect
     return x <= mouse_x <= x + w and y <= mouse_y <= y + h
@@ -395,7 +422,7 @@ def draw_item_stack(canvas, item, x, y, size=32):
         canvas[y+pad:y+pad+size, x+pad:x+pad+size] = mini_tex
         cv2.putText(canvas, str(item["count"]), (x + 25, y + 40), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
 
-def get_hovered_item(mouse_x, mouse_y, inventory=None, crafting_grid=None, table_grid=None, output=None, table_output=None):
+def get_hovered_item(mouse_x, mouse_y, inventory=None, crafting_grid=None, table_grid=None, output=None, table_output=None, chest_slots=None):
     if crafting_grid:
         for i, item in enumerate(crafting_grid):
             if rect_contains(get_crafting_slot_rect(i), mouse_x, mouse_y) and item["id"] != 0:
@@ -403,6 +430,10 @@ def get_hovered_item(mouse_x, mouse_y, inventory=None, crafting_grid=None, table
     if table_grid:
         for i, item in enumerate(table_grid):
             if rect_contains(get_table_slot_rect(i), mouse_x, mouse_y) and item["id"] != 0:
+                return item
+    if chest_slots:
+        for i, item in enumerate(chest_slots):
+            if rect_contains(get_chest_slot_rect(i), mouse_x, mouse_y) and item["id"] != 0:
                 return item
     if inventory:
         for i, item in enumerate(inventory):
@@ -419,7 +450,7 @@ def get_item_rarity_color(item_id):
         return (100, 230, 255)
     if item_id in (57, 58, 59, 60, 61, 62, 63, 66):
         return (255, 235, 90)
-    if item_id in (47, 48, 49, 50, 51):
+    if item_id in (47, 48, 49, 50, 51, 80, 81, 82, 83, 84):
         return (120, 230, 160)
     if item_id in (41, 42, 43, 44, 46):
         return (120, 255, 255)
@@ -456,18 +487,19 @@ def get_item_tip_lines(item, item_names, tool_speeds=None, weapon_damage=None, p
             lines.append("Mine: " + "  ".join(parts))
     if placeable_blocks and item_id in placeable_blocks:
         lines.append("Placeable block")
-    if item_id in (47, 48, 49, 50, 51, 67, 79):
+    if item_id in (47, 48, 49, 50, 51, 67, 79, 80, 81, 82, 83, 84):
         lines.append("Food: right click to eat")
     usage_notes = {
-        52: "Use: smelts ore/Cobblestone with Coal",
+        16: "Use: prevents hostile spawns nearby",
+        52: "Use: smelts ore, Cobblestone, and raw food with Coal",
         54: "Use: cuts Cobblestone into walls",
-        55: "Use: toggles a signal torch above it",
+        55: "Use: toggles a signal torch and prevents spawns nearby",
         58: "Use: right click to equip armor",
         59: "Use: right click to equip armor",
         60: "Use: right click to equip armor",
         61: "Use: right click to equip armor",
-        62: "Use: enchant held tool/weapon for XP 5",
-        63: "Use: play music for a tiny XP boost",
+        62: "Use: enchant held gear and blocks nearby spawns",
+        63: "Use: play music and blocks nearby spawns",
         64: "Material: Stonecutter recipe",
         65: "Material: Enchanting Table recipe",
         66: "Material: Enchanting Table recipe",
@@ -484,6 +516,11 @@ def get_item_tip_lines(item, item_names, tool_speeds=None, weapon_damage=None, p
         77: "Use: plant Seeds on it",
         78: "Crop: harvest when mature",
         79: "Food: right click to eat",
+        80: "Cooked food: restores more hunger and HP",
+        81: "Cooked food: restores more hunger and HP",
+        82: "Cooked food: restores more hunger and HP",
+        83: "Cooked food: restores more hunger and HP",
+        84: "Cooked food: restores more hunger and HP",
     }
     if item_id in usage_notes:
         lines.append(usage_notes[item_id])
@@ -552,7 +589,7 @@ def draw_hud(canvas, hp, hunger, inventory, selected_slot, level=1, xp=0, xp_nex
             canvas[sy+7:sy+31, sx+7:sx+31] = mini_tex
             cv2.putText(canvas, str(item["count"]), (sx+20, sy+35), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1)
 
-def draw_minimap(canvas, visible_world, player_block_x, player_block_y, mobs=None, animals=None, npcs=None, village_stats=None):
+def draw_minimap(canvas, visible_world, player_block_x, player_block_y, mobs=None, animals=None, npcs=None, village_stats=None, display_player_y=None):
     map_w, map_h, scale = 180, 110, 5
     x0, y0 = WIDTH - map_w - 18, 18
     cv2.rectangle(canvas, (x0-4, y0-4), (x0+map_w+4, y0+map_h+42), (0, 0, 0), -1)
@@ -561,7 +598,7 @@ def draw_minimap(canvas, visible_world, player_block_x, player_block_y, mobs=Non
         0: (35, 45, 55), 1: (50, 180, 60), 2: (60, 90, 145), 3: (130, 130, 130),
         6: (130, 205, 235), 7: (230, 150, 50), 8: (25, 65, 100), 9: (45, 150, 45),
         15: (25, 25, 25), 17: (80, 150, 200), 23: (255, 230, 90), 29: (100, 100, 100),
-        34: (30, 190, 240), 72: (75, 75, 90), 73: (240, 210, 120), 74: (110, 105, 95),
+        34: (30, 190, 240), 66: (65, 40, 95), 72: (75, 75, 90), 73: (240, 210, 120), 74: (110, 105, 95),
     }
     rows = min(visible_world.shape[0], map_h // scale)
     cols = min(visible_world.shape[1], map_w // scale)
@@ -579,7 +616,8 @@ def draw_minimap(canvas, visible_world, player_block_x, player_block_y, mobs=Non
             if x0 <= ex <= x0 + map_w and y0 <= ey <= y0 + map_h:
                 cv2.circle(canvas, (ex, ey), 2, color, -1)
     cv2.rectangle(canvas, (x0, y0), (x0+map_w, y0+map_h), (220, 220, 220), 1)
-    cv2.putText(canvas, f"X {player_block_x}  Y {player_block_y}", (x0, y0+map_h+16), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (245,245,245), 1)
+    shown_y = player_block_y if display_player_y is None else display_player_y
+    cv2.putText(canvas, f"X {player_block_x}  Y {shown_y}", (x0, y0+map_h+16), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (245,245,245), 1)
     if village_stats:
         text = f"Village H{village_stats.get('houses', 0)} S{village_stats.get('supplies', 0)}"
         cv2.putText(canvas, text, (x0, y0+map_h+34), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (180,255,220), 1)
@@ -832,6 +870,49 @@ def draw_furnace_screen(base_canvas, inventory, furnace_slots, progress, mouse_x
     draw_item_tooltip(canvas, selected_item, mouse_x, mouse_y, item_names, tool_speeds, weapon_damage, placeable_blocks)
     return canvas
 
+def draw_chest_screen(base_canvas, inventory, chest_slots, mouse_x, mouse_y, cursor_item, item_names=None, tool_speeds=None, weapon_damage=None, placeable_blocks=None):
+    item_names = item_names or {}
+    canvas = base_canvas.copy()
+    overlay = canvas.copy()
+    cv2.rectangle(overlay, (0, 0), (WIDTH, HEIGHT), (0, 0, 0), -1)
+    cv2.addWeighted(overlay, 0.5, canvas, 0.5, 0, canvas)
+
+    px, py, panel_w, panel_h = get_inventory_panel_rect()
+    cv2.rectangle(canvas, (px, py), (px + panel_w, py + panel_h), (138, 132, 120), -1)
+    cv2.rectangle(canvas, (px, py), (px + panel_w, py + panel_h), (45, 40, 34), 3)
+    cv2.putText(canvas, "Chest Storage", (px + 20, py + 35), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+    cv2.putText(canvas, "ESC/E closes", (px + panel_w - 150, py + 35), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (235, 235, 220), 1)
+
+    selected_item = get_hovered_item(mouse_x, mouse_y, inventory=inventory, chest_slots=chest_slots)
+    name_text = item_names.get(selected_item["id"], "") if selected_item else "Store supplies here"
+    cv2.rectangle(canvas, (px + 300, py + 52), (px + panel_w - 18, py + 80), (82, 78, 72), -1)
+    cv2.putText(canvas, name_text[:28], (px + 312, py + 72), cv2.FONT_HERSHEY_SIMPLEX, 0.48, get_item_rarity_color(selected_item["id"]) if selected_item else (230, 230, 230), 1)
+
+    for i in range(18):
+        sx, sy, sw, sh = get_chest_slot_rect(i)
+        bg = (185, 178, 160) if rect_contains((sx, sy, sw, sh), mouse_x, mouse_y) else (100, 96, 88)
+        cv2.rectangle(canvas, (sx, sy), (sx + sw, sy + sh), bg, -1)
+        cv2.rectangle(canvas, (sx, sy), (sx + sw, sy + sh), (35, 32, 28), 1)
+        draw_item_stack(canvas, chest_slots[i], sx, sy)
+
+    for i in range(36):
+        slot_x, slot_y, slot_w, slot_h = get_inventory_slot_rect(i)
+        bg_color = (180, 180, 180) if rect_contains((slot_x, slot_y, slot_w, slot_h), mouse_x, mouse_y) else (100, 100, 100)
+        cv2.rectangle(canvas, (slot_x, slot_y), (slot_x + slot_w, slot_y + slot_h), bg_color, -1)
+        cv2.rectangle(canvas, (slot_x, slot_y), (slot_x + slot_w, slot_y + slot_h), (50, 50, 50), 1)
+        draw_item_stack(canvas, inventory[i], slot_x, slot_y)
+
+    if cursor_item["id"] != 0 and cursor_item["id"] in textures:
+        floating_tex = cv2.resize(textures[cursor_item["id"]], (32, 32))
+        x1, x2 = max(0, mouse_x - 16), min(WIDTH, mouse_x + 16)
+        y1, y2 = max(0, mouse_y - 16), min(HEIGHT, mouse_y + 16)
+        if (x2 - x1 == 32) and (y2 - y1 == 32):
+            canvas[y1:y2, x1:x2] = floating_tex
+            cv2.putText(canvas, str(cursor_item["count"]), (mouse_x + 4, mouse_y + 12), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 100), 1)
+
+    draw_item_tooltip(canvas, selected_item, mouse_x, mouse_y, item_names, tool_speeds, weapon_damage, placeable_blocks)
+    return canvas
+
 # --- 【無限世界核心修復】現在 draw_game_scene 只負責渲染裁剪後的 visible_world 矩陣 ---
 def draw_game_scene(sky_color, visible_world, player_data, mining_data, particles, frame_count, camera_subpixel_x, camera_subpixel_y, target_data=None, mobs=None, animals=None, birds=None, dropped_items=None, planes=None, sunbirds=None, npcs=None, projectiles=None, supply_planes=None, supply_crates=None):
     bgr_sky = (sky_color[2], sky_color[1], sky_color[0])
@@ -890,6 +971,10 @@ def draw_game_scene(sky_color, visible_world, player_data, mining_data, particle
         spy = int(animal["y"] - (ppy - screen_py))
         if -TILE_SIZE <= spx < WIDTH and -TILE_SIZE <= spy < HEIGHT:
             kind = animal.get("type", "cow")
+            max_hp = max(1, animal.get("max_hp", animal.get("hp", 1)))
+            hp_w = max(0, min(24, int(animal.get("hp", max_hp) / max_hp * 24)))
+            cv2.rectangle(canvas, (spx+8, spy-6), (spx+32, spy-3), (20, 20, 20), -1)
+            cv2.rectangle(canvas, (spx+8, spy-6), (spx+8+hp_w, spy-3), (70, 220, 80), -1)
             if kind == "pig":
                 body, detail = (120, 155, 230), (90, 110, 200)
             elif kind == "sheep":

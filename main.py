@@ -15,7 +15,7 @@ pygame.display.set_caption(render.WINDOW_NAME)
 clock = pygame.time.Clock()
 
 current_state = render.STATE_GAME  
-WORLD_ROWS = 40
+WORLD_ROWS = 96
 CHUNK_SIZE = 16 
 SAVE_FILE = "savegame_infinite.json"
 MAX_STACK = 64
@@ -31,7 +31,16 @@ MAX_NPCS = 8
 MAX_PROJECTILES = 40
 MAX_STRUCTURES = 8
 MAX_DROPPED_ITEMS = 80
+MAX_DROP_AGE_FRAMES = 3600
+ACTIVE_CHUNK_KEEP_RADIUS = 6
+RESOURCE_CLEANUP_INTERVAL = 600
+MAX_PERSISTENT_CHESTS = 80
+MAX_COVERED_BLOCKS = 2048
+MAX_PLANTED_CROPS = 512
+VOID_DEATH_MARGIN_BLOCKS = 4
 HOSTILE_AGGRO_BLOCKS = 7
+SPAWN_PROTECTION_RADIUS = 8
+SPAWN_PROTECTION_BLOCKS = {16, 55, 62, 63}
 MOB_SPAWN_INTERVAL = 180
 ANIMAL_SPAWN_INTERVAL = 360
 BIRD_SPAWN_INTERVAL = 210
@@ -49,6 +58,7 @@ HOTBAR_START = 27
 HOTBAR_SIZE = 9
 CROP_GROW_INTERVAL = 1800
 VILLAGE_UPDATE_INTERVAL = 900
+DISPLAY_Y_ZERO_BLOCK = WORLD_ROWS // 2
 
 mouse_x, mouse_y = 0, 0     
 is_mining, mine_target_abs_x, mine_target_abs_y, mining_progress, mining_required_time = False, -1, -1, 0, 20
@@ -63,6 +73,8 @@ inventory[HOTBAR_START + 2] = {"id": 1, "count": 64}
 crafting_grid = [{"id": 0, "count": 0} for _ in range(4)] 
 crafting_table_grid = [{"id": 0, "count": 0} for _ in range(9)]
 furnace_slots = [{"id": 0, "count": 0} for _ in range(3)]
+open_chest_key = None
+open_chest_slots = [{"id": 0, "count": 0} for _ in range(18)]
 crafting_output, crafting_table_output = {"id": 0, "count": 0}, {"id": 0, "count": 0}
 cursor_item = {"id": 0, "count": 0}
 furnace_progress = 0
@@ -91,6 +103,8 @@ ITEM_NAMES = {
     67: "Rotten Flesh", 68: "Bone", 69: "String", 70: "Slimeball", 71: "Boss Core",
     72: "Deepslate", 73: "Cave Crystal", 74: "Packed Stone",
     75: "Seeds", 76: "Wheat", 77: "Farmland", 78: "Wheat Crop", 79: "Bread",
+    80: "Cooked Chicken", 81: "Cooked Porkchop", 82: "Steak",
+    83: "Cooked Mutton", 84: "Cooked Venison",
 }
 PLACEABLE_BLOCKS = {1, 2, 3, 4, 6, 8, 9, 10, 16, 17, 23, 29, 34, 45, 52, 54, 55, 56, 57, 62, 63, 64, 66, 72, 73, 74, 77}
 BLOCK_DROPS = {3: 29, 17: 18, 23: 24, 34: 35, 52: 52, 54: 54, 55: 55, 56: 56, 57: 57, 62: 62, 63: 63, 64: 64, 66: 66, 72: 72, 73: 73, 74: 74, 77: 2, 78: 76}
@@ -119,6 +133,7 @@ GUN_STATS = {
     43: {"damage": 6, "speed": 18.0, "cost": 1},
     44: {"damage": 10, "speed": 12.0, "cost": 2},
 }
+ANIMAL_MAX_HP = {"chicken": 4, "pig": 8, "sheep": 8, "cow": 10, "deer": 12}
 FOOD_VALUES = {
     47: {"hp": 1, "hunger": 2},
     48: {"hp": 2, "hunger": 3},
@@ -127,6 +142,11 @@ FOOD_VALUES = {
     51: {"hp": 3, "hunger": 4},
     67: {"hp": 0, "hunger": 1},
     79: {"hp": 2, "hunger": 5},
+    80: {"hp": 2, "hunger": 4},
+    81: {"hp": 3, "hunger": 5},
+    82: {"hp": 3, "hunger": 6},
+    83: {"hp": 3, "hunger": 5},
+    84: {"hp": 4, "hunger": 6},
 }
 ITEM_MAX_DURABILITY = {
     **{item_id: 60 for item_id in (11, 12, 13, 14)},
@@ -164,6 +184,12 @@ BLOCK_CATEGORIES = {
     9: "leaves", 10: "wood", 16: "wood", 17: "stone", 23: "stone", 29: "stone", 34: "stone", 45: "wood",
     52: "stone", 54: "stone", 55: "stone", 56: "stone", 57: "stone", 62: "stone", 63: "wood", 64: "stone", 66: "stone",
     72: "stone", 73: "stone", 74: "stone", 77: "dirt", 78: "leaves",
+}
+BLOCK_HARDNESS = {
+    72: 1.35,
+    74: 1.75,
+    66: 2.8,
+    73: 1.45,
 }
 
 SHAPELESS_RECIPES = {
@@ -254,10 +280,15 @@ CRAFTING_REFERENCE_3X3 = [
     ("Diamond Tools", "Diamond x1-3 + Stick", "same tool layouts as stone/iron tools", "late-game mining and combat"),
     ("Enchanting Table", "Book x1 + Diamond x2 + Obsidian x4", "Book top-middle; Diamond/Obsidian/Diamond middle; Obsidian bottom row", "right click to enchant held gear for XP"),
     ("Jukebox", "Planks x8 + Diamond x1", "outer ring Planks, center Diamond", "right click to play music and gain a tiny XP boost"),
+    ("Stone Pistol", "Cobblestone x3 + Iron Ingot x1 + Stick x1", "top row Cobblestone; middle has Iron Ingot and Stick on either side", "starter gun that uses Bullets"),
+    ("Iron Rifle", "Iron Ingot x3 + Coal x1 + Cobblestone x1 + Stick x1", "top row Iron; middle row Cobblestone/Coal/Stick, mirrored also works", "stronger gun with steady damage"),
+    ("Golden Blaster", "Gold Ingot x3 + Coal x1 + Cobblestone x1 + Stick x1", "top row Gold; middle row Cobblestone/Coal/Stick, mirrored also works", "fast gun with high fire speed"),
+    ("Diamond Cannon", "Diamond x3 + Coal x1 + Iron Ingot x1 + Stick x1", "top row Diamond; middle row Iron/Coal/Stick, mirrored also works", "heavy late-game gun"),
 ]
 
 active_chunks = {} 
 saved_chunks = {}
+dirty_chunks = set()
 covered_blocks = {}
 WORLD_SEED = random.randint(0, 5000)
 sky_color = (120, 180, 255)
@@ -289,6 +320,7 @@ last_house_spawn_frame = 0
 last_wander_npc_spawn_frame = 0
 last_boss_spawn_frame = 0
 last_player_damage_frame = 0
+last_resource_cleanup_frame = 0
 trader_message = ""
 
 DIAMOND_ARMOR_SLOTS = {58: "helmet", 59: "chestplate", 60: "leggings", 61: "boots"}
@@ -299,6 +331,11 @@ FURNACE_RECIPES = {
     34: {"result": 35, "name": "Gold Ingot"},
     23: {"result": 24, "name": "Diamond"},
     29: {"result": 64, "name": "Smooth Stone"},
+    47: {"result": 80, "name": "Cooked Chicken"},
+    48: {"result": 81, "name": "Cooked Porkchop"},
+    49: {"result": 82, "name": "Steak"},
+    50: {"result": 83, "name": "Cooked Mutton"},
+    51: {"result": 84, "name": "Cooked Venison"},
 }
 
 player_abs_px = 0.0  
@@ -361,13 +398,18 @@ def get_chunk_and_local(abs_block_x):
     local_x = int(abs_block_x % CHUNK_SIZE)
     return chunk_idx, local_x
 
+def generate_chunk_for_index(chunk_idx):
+    return terrain.generate_chunk(WORLD_ROWS, CHUNK_SIZE, chunk_idx * CHUNK_SIZE, WORLD_SEED)
+
+def chunk_matches_generated(chunk_idx, chunk):
+    return np.array_equal(chunk, generate_chunk_for_index(chunk_idx))
+
 def load_or_generate_chunk(chunk_idx):
     if chunk_idx not in active_chunks:
         if chunk_idx in saved_chunks:
             active_chunks[chunk_idx] = saved_chunks[chunk_idx].copy()
         else:
-            offset_x = chunk_idx * CHUNK_SIZE
-            active_chunks[chunk_idx] = terrain.generate_chunk(WORLD_ROWS, CHUNK_SIZE, offset_x, WORLD_SEED)
+            active_chunks[chunk_idx] = generate_chunk_for_index(chunk_idx)
 
 def get_block_at(abs_block_x, block_y):
     if block_y < 0 or block_y >= WORLD_ROWS: return 0
@@ -379,11 +421,94 @@ def set_block_at(abs_block_x, block_y, block_id):
     if block_y < 0 or block_y >= WORLD_ROWS: return
     c_idx, lx = get_chunk_and_local(abs_block_x)
     load_or_generate_chunk(c_idx)
+    if int(active_chunks[c_idx][block_y, lx]) == int(block_id):
+        return
     active_chunks[c_idx][block_y, lx] = block_id
     saved_chunks[c_idx] = active_chunks[c_idx].copy()
+    dirty_chunks.add(c_idx)
 
 def block_key(abs_block_x, block_y):
     return f"{abs_block_x},{block_y}"
+
+def display_world_y(block_y):
+    return DISPLAY_Y_ZERO_BLOCK - int(block_y)
+
+def is_player_in_void():
+    return player_py > (WORLD_ROWS + VOID_DEATH_MARGIN_BLOCKS) * render.TILE_SIZE
+
+def parse_block_key(key):
+    try:
+        x_text, y_text = str(key).split(",", 1)
+        return int(x_text), int(y_text)
+    except (TypeError, ValueError):
+        return None
+
+def block_distance_from_player(abs_block_x, block_y):
+    return math.hypot(abs_block_x - player_block_center_x, block_y - int(player_py // render.TILE_SIZE))
+
+def trim_spatial_dict(data, max_items, preserve_key=None):
+    if len(data) <= max_items:
+        return
+    keyed_distances = []
+    for key in list(data.keys()):
+        if key == preserve_key:
+            continue
+        pos = parse_block_key(key)
+        if not pos:
+            keyed_distances.append((float("inf"), key))
+            continue
+        keyed_distances.append((block_distance_from_player(pos[0], pos[1]), key))
+    keyed_distances.sort(reverse=True)
+    for _, key in keyed_distances[:max(0, len(data) - max_items)]:
+        data.pop(key, None)
+
+def chest_value_is_empty(value):
+    slots = value.get("slots", []) if isinstance(value, dict) else value
+    return not slots or all(not item or is_empty(item) for item in slots)
+
+def trim_empty_chests(max_items):
+    if len(chests) <= max_items:
+        return
+    removable = []
+    for key, value in list(chests.items()):
+        if key == open_chest_key or not chest_value_is_empty(value):
+            continue
+        pos = parse_block_key(key)
+        distance = float("inf") if not pos else block_distance_from_player(pos[0], pos[1])
+        removable.append((distance, key))
+    removable.sort(reverse=True)
+    for _, key in removable[:max(0, len(chests) - max_items)]:
+        chests.pop(key, None)
+
+def compact_dirty_chunks():
+    for chunk_idx in list(dirty_chunks):
+        chunk = saved_chunks.get(chunk_idx)
+        if chunk is None:
+            dirty_chunks.discard(chunk_idx)
+        elif chunk_matches_generated(chunk_idx, chunk):
+            saved_chunks.pop(chunk_idx, None)
+            dirty_chunks.discard(chunk_idx)
+
+def unload_far_chunks_around(center_block_x):
+    center_chunk_idx, _ = get_chunk_and_local(center_block_x)
+    for chunk_idx in list(active_chunks.keys()):
+        if abs(chunk_idx - center_chunk_idx) > ACTIVE_CHUNK_KEEP_RADIUS:
+            del active_chunks[chunk_idx]
+
+def unload_far_chunks():
+    unload_far_chunks_around(player_block_center_x)
+
+def cleanup_runtime_resources(force=False):
+    global last_resource_cleanup_frame
+    if not force and frame_count - last_resource_cleanup_frame < RESOURCE_CLEANUP_INTERVAL:
+        return
+    last_resource_cleanup_frame = frame_count
+    unload_far_chunks()
+    trim_empty_chests(MAX_PERSISTENT_CHESTS)
+    trim_spatial_dict(covered_blocks, MAX_COVERED_BLOCKS)
+    trim_spatial_dict(planted_crops, MAX_PLANTED_CROPS)
+    del projectiles[MAX_PROJECTILES:]
+    del dropped_items[MAX_DROPPED_ITEMS:]
 
 def player_touches_block(abs_block_x, block_y):
     left = int(player_abs_px + 6) // render.TILE_SIZE
@@ -453,7 +578,8 @@ def get_current_mine_time(block_id):
         speed *= 1.35
     if category == "leaves":
         speed = max(speed, 2.5)
-    return max(5, int(MINE_MAX_TIME / speed))
+    hardness = BLOCK_HARDNESS.get(int(block_id), 1.0)
+    return max(5, int(MINE_MAX_TIME * hardness / speed))
 
 def get_attack_damage():
     selected_id = get_selected_item_id()
@@ -526,12 +652,15 @@ def find_safe_player_spawn():
                 continue
             if any(int(get_block_at(abs_block_x + nx, y)) == 7 for nx in (-1, 0, 1)):
                 continue
+            unload_far_chunks_around(abs_block_x)
             return abs_block_x * render.TILE_SIZE, y * render.TILE_SIZE
 
     for abs_block_x in offsets:
         for y in range(1, WORLD_ROWS - 1):
             if int(get_block_at(abs_block_x, y)) == 0 and int(get_block_at(abs_block_x, y + 1)) in (1, 6):
+                unload_far_chunks_around(abs_block_x)
                 return abs_block_x * render.TILE_SIZE, y * render.TILE_SIZE
+    unload_far_chunks_around(0)
     return 0.0, 100.0
 
 def spawn_blood_particles(x, y, source_x=None, source_y=None):
@@ -590,7 +719,7 @@ def drop_item_stack(item, x, y):
         return
     if len(dropped_items) >= MAX_DROPPED_ITEMS:
         dropped_items.pop(0)
-    dropped_items.append({
+    drop = {
         "id": int(item["id"]),
         "count": int(item["count"]),
         "x": float(x),
@@ -598,7 +727,27 @@ def drop_item_stack(item, x, y):
         "vx": random.uniform(-2.6, 2.6),
         "vy": random.uniform(-6.0, -2.0),
         "age": 0,
-    })
+    }
+    if "durability" in item:
+        drop["durability"] = int(item["durability"])
+    dropped_items.append(drop)
+
+def drop_selected_item():
+    item = inventory[selected_slot]
+    if is_empty(item):
+        return False
+    drop = {"id": item["id"], "count": 1}
+    if "durability" in item:
+        drop["durability"] = item["durability"]
+    direction = 1 if facing_right else -1
+    drop_x = player_abs_px + render.TILE_SIZE / 2 + direction * 12
+    drop_y = player_py + render.TILE_SIZE / 2
+    drop_item_stack(drop, drop_x, drop_y)
+    dropped_items[-1]["vx"] = direction * 3.2
+    item["count"] -= 1
+    normalize_item(item)
+    play_sound("click")
+    return True
 
 def count_item(item_id):
     return sum(slot["count"] for slot in inventory if slot["id"] == item_id)
@@ -687,7 +836,7 @@ def use_furnace_block():
             trader_message = f"Furnace smelted {recipe['name']}."
             play_sound("craft")
             return True
-    trader_message = "Furnace can smelt ore or Cobblestone."
+    trader_message = "Furnace can smelt ore, Cobblestone, or raw food."
     play_sound("click")
     return False
 
@@ -961,8 +1110,28 @@ def get_animal_food_drop(animal_type):
         "deer": {"id": 51, "count": random.randint(2, 3)},
     }.get(animal_type, {"id": 49, "count": 1})
 
+def damage_animal(index, damage, source_x, source_y):
+    if index is None or index < 0 or index >= len(animals):
+        return False
+    animal = animals[index]
+    animal_type = animal.get("type", "cow")
+    animal["max_hp"] = animal.get("max_hp", ANIMAL_MAX_HP.get(animal_type, 8))
+    animal["hp"] = animal.get("hp", animal["max_hp"]) - damage
+    dx = (animal["x"] + render.TILE_SIZE / 2) - source_x
+    dy = (animal["y"] + render.TILE_SIZE / 2) - source_y
+    length = max(1.0, math.hypot(dx, dy))
+    animal["vx"] = animal.get("vx", 0.0) + dx / length * 2.0
+    animal["vy"] = min(animal.get("vy", 0.0), -2.2) + dy / length * 0.8
+    spawn_blood_particles(animal["x"] + render.TILE_SIZE / 2, animal["y"] + render.TILE_SIZE / 2, source_x, source_y)
+    if animal["hp"] <= 0:
+        drop_item_stack(get_animal_food_drop(animal_type), animal["x"], animal["y"])
+        animals.pop(index)
+    play_sound("break")
+    return True
+
 def clear_item(item):
     item["id"], item["count"] = 0, 0
+    item.pop("durability", None)
 
 def drop_all_player_items():
     death_x = player_abs_px + render.TILE_SIZE / 2
@@ -994,6 +1163,10 @@ def respawn_player():
     is_mining = False
 
 def handle_player_death():
+    global hp, trader_message
+    if is_player_in_void():
+        hp = 0
+        trader_message = "You fell into the void."
     if hp > 0:
         return
     drop_all_player_items()
@@ -1003,6 +1176,9 @@ def handle_player_death():
 def update_dropped_items():
     for drop in dropped_items[:]:
         drop["age"] = drop.get("age", 0) + 1
+        if drop["age"] > MAX_DROP_AGE_FRAMES:
+            dropped_items.remove(drop)
+            continue
         drop["vy"] = min(8.0, drop.get("vy", 0.0) + GRAVITY * 0.45)
 
         new_x = drop["x"] + drop.get("vx", 0.0)
@@ -1021,7 +1197,10 @@ def update_dropped_items():
         if drop["age"] > 45:
             close_enough = abs(drop["x"] - (player_abs_px + 20)) < 32 and abs(drop["y"] - (player_py + 20)) < 32
             if close_enough:
-                remaining = add_to_inventory({"id": drop["id"], "count": drop["count"]})
+                pickup = {"id": drop["id"], "count": drop["count"]}
+                if "durability" in drop:
+                    pickup["durability"] = drop["durability"]
+                remaining = add_to_inventory(pickup)
                 if is_empty(remaining):
                     dropped_items.remove(drop)
                     play_sound("click")
@@ -1044,6 +1223,27 @@ def update_projectiles():
             damage_mob(hit_idx, shot["damage"], shot["x"] - shot.get("vx", 0.0) * 2, shot["y"] - shot.get("vy", 0.0) * 2, 4.5)
             projectiles.remove(shot)
 
+def is_spawn_protected(abs_block_x, block_y, radius=SPAWN_PROTECTION_RADIUS):
+    for y in range(max(0, block_y - radius), min(WORLD_ROWS, block_y + radius + 1)):
+        for x in range(abs_block_x - radius, abs_block_x + radius + 1):
+            if int(get_block_at(x, y)) in SPAWN_PROTECTION_BLOCKS:
+                return True
+    return False
+
+def reposition_trade_npc_near_player(npc):
+    for _ in range(14):
+        spawn_block_x = player_block_center_x + random.choice([-1, 1]) * random.randint(5, 10)
+        spawn_y = find_spawn_y(spawn_block_x)
+        if spawn_y is None:
+            continue
+        npc["x"] = float(spawn_block_x * render.TILE_SIZE)
+        npc["y"] = float(spawn_y)
+        npc["vx"] = 0.0
+        npc["vy"] = 0.0
+        npc["wander_cd"] = random.randint(60, 160)
+        return True
+    return False
+
 def spawn_monster():
     if len(mobs) >= MAX_MOBS:
         return
@@ -1051,7 +1251,7 @@ def spawn_monster():
         offset = random.choice([-1, 1]) * random.randint(8, 16)
         spawn_block_x = player_block_center_x + offset
         spawn_y = find_spawn_y(spawn_block_x)
-        if spawn_y is None:
+        if spawn_y is None or is_spawn_protected(spawn_block_x, spawn_y):
             continue
         mob_type = random.choice(["zombie", "skeleton", "slime", "green_jet"])
         base_hp = {"zombie": 12, "skeleton": 10, "slime": 9, "green_jet": 8}[mob_type]
@@ -1070,6 +1270,8 @@ def find_cave_spawn():
     for _ in range(24):
         spawn_block_x = player_block_center_x + random.choice([-1, 1]) * random.randint(5, 14)
         y = random.randint(WORLD_ROWS // 2 + 5, WORLD_ROWS - 3)
+        if is_spawn_protected(spawn_block_x, y):
+            continue
         if get_block_at(spawn_block_x, y) in NON_SOLID_BLOCKS and get_block_at(spawn_block_x, y + 1) not in NON_SOLID_BLOCKS:
             return spawn_block_x * render.TILE_SIZE, y * render.TILE_SIZE
     return None
@@ -1132,12 +1334,16 @@ def spawn_animal():
         spawn_y = find_spawn_y(spawn_block_x)
         if spawn_y is None:
             continue
+        animal_type = random.choice(["cow", "pig", "sheep", "chicken", "deer"])
+        max_hp = ANIMAL_MAX_HP.get(animal_type, 8)
         animals.append({
-            "type": random.choice(["cow", "pig", "sheep", "chicken", "deer"]),
+            "type": animal_type,
             "x": float(spawn_block_x * render.TILE_SIZE),
             "y": float(spawn_y),
             "vx": random.choice([-0.5, 0.5]),
             "vy": 0.0,
+            "hp": max_hp,
+            "max_hp": max_hp,
             "wander": random.randint(30, 140),
         })
         break
@@ -1369,18 +1575,36 @@ def spawn_wandering_npc():
         })
         break
 
-def loot_chest(abs_block_x, block_y):
+def normalize_chest_slots(abs_block_x, block_y):
     key = block_key(abs_block_x, block_y)
-    loot = chests.pop(key, None)
-    if not loot:
-        return False
-    for item in loot:
-        remaining = add_to_inventory(item)
-        if not is_empty(remaining):
-            drop_item_stack(remaining, abs_block_x * render.TILE_SIZE, block_y * render.TILE_SIZE)
-    set_block_at(abs_block_x, block_y, 0)
-    play_sound("craft")
+    slots = chests.get(key)
+    if slots is None:
+        slots = []
+    normalized = []
+    for item in slots[:18]:
+        if not item or is_empty(item):
+            normalized.append(empty_item())
+        else:
+            normalized.append(copy_item(item))
+    while len(normalized) < 18:
+        normalized.append(empty_item())
+    chests[key] = normalized
+    return key, normalized
+
+def open_chest_storage(abs_block_x, block_y):
+    global current_state, open_chest_key, open_chest_slots
+    open_chest_key, open_chest_slots = normalize_chest_slots(abs_block_x, block_y)
+    current_state = render.STATE_CHEST
+    play_sound("open")
     return True
+
+def drop_chest_contents(abs_block_x, block_y):
+    key = block_key(abs_block_x, block_y)
+    slots = chests.pop(key, [])
+    drop_x = abs_block_x * render.TILE_SIZE + render.TILE_SIZE / 2
+    drop_y = block_y * render.TILE_SIZE + render.TILE_SIZE / 2
+    for item in slots:
+        drop_item_stack(item, drop_x, drop_y)
 
 def find_mob_at_world(world_px, world_py):
     for idx, mob in enumerate(mobs):
@@ -1521,15 +1745,18 @@ def update_mobs():
 
 def update_animals():
     for animal in animals[:]:
+        animal_type = animal.get("type", "cow")
+        animal["max_hp"] = animal.get("max_hp", ANIMAL_MAX_HP.get(animal_type, 8))
+        animal["hp"] = animal.get("hp", animal["max_hp"])
         animal["wander"] = animal.get("wander", 0) - 1
         if animal["wander"] <= 0:
             speed_choices = {
                 "chicken": [-1.0, -0.55, 0.0, 0.55, 1.0],
                 "deer": [-1.4, -0.8, 0.0, 0.8, 1.4],
-            }.get(animal.get("type"), [-0.8, -0.45, 0.0, 0.45, 0.8])
+            }.get(animal_type, [-0.8, -0.45, 0.0, 0.45, 0.8])
             animal["vx"] = random.choice(speed_choices)
             animal["wander"] = random.randint(45, 180)
-            if animal.get("type") in ("chicken", "deer") and random.random() < 0.35:
+            if animal_type in ("chicken", "deer") and random.random() < 0.35:
                 animal["vy"] = min(animal.get("vy", 0.0), -4.0)
 
         new_x = animal["x"] + animal.get("vx", 0.0)
@@ -1591,7 +1818,7 @@ def update_supply_crates():
         block_y = int((crate["y"] + render.TILE_SIZE) // render.TILE_SIZE)
         if block_y >= WORLD_ROWS - 1 or int(get_block_at(block_x, block_y)) not in NON_SOLID_BLOCKS:
             chest_y = max(0, min(WORLD_ROWS - 1, block_y - 1))
-            if int(get_block_at(block_x, chest_y)) in NON_SOLID_BLOCKS:
+            if int(get_block_at(block_x, chest_y)) in NON_SOLID_BLOCKS and len(chests) < MAX_PERSISTENT_CHESTS:
                 set_block_at(block_x, chest_y, 45)
                 chests[block_key(block_x, chest_y)] = crate.get("loot", create_airdrop_loot())
                 play_sound("craft")
@@ -1647,7 +1874,10 @@ def update_npcs():
             else:
                 npc["vy"] = 0
         if abs(npc["x"] - player_abs_px) > render.TILE_SIZE * 42 and not npc.get("house"):
-            npcs.remove(npc)
+            if npc.get("job") in ("merchant", "trader"):
+                reposition_trade_npc_near_player(npc)
+            else:
+                npcs.remove(npc)
 
 def check_collision(abs_px, py):
     left = int(abs_px + 6) // render.TILE_SIZE
@@ -1670,7 +1900,9 @@ def check_will_fall(abs_px, py):
     return False
 
 def save_game():
-    chunks_to_save = {**saved_chunks, **active_chunks}
+    cleanup_runtime_resources(force=True)
+    compact_dirty_chunks()
+    chunks_to_save = {idx: saved_chunks[idx] for idx in dirty_chunks if idx in saved_chunks}
     serializable_chunks = {str(k): v.astype(int).tolist() for k, v in chunks_to_save.items()}
     save_data = {
         "player_abs_px": player_abs_px, "player_py": player_py, "seed": WORLD_SEED,
@@ -1682,18 +1914,19 @@ def save_game():
         "cursor_item": cursor_item, "covered_blocks": covered_blocks,
         "planted_crops": planted_crops, "village_stats": village_stats,
         "world_time": world_time, "mobs": mobs, "animals": animals,
-        "birds": birds, "planes": planes, "supply_planes": supply_planes,
-        "supply_crates": supply_crates, "sunbirds": sunbirds,
-        "npcs": npcs, "projectiles": projectiles, "structures": structures,
+        "birds": [], "planes": [], "supply_planes": [],
+        "supply_crates": [], "sunbirds": [],
+        "npcs": npcs, "projectiles": [], "structures": structures,
         "chests": chests, "dropped_items": dropped_items,
-        "chunks": serializable_chunks
+        "chunks": serializable_chunks, "dirty_chunks": sorted(dirty_chunks),
+        "save_version": 2
     }
     with open(SAVE_FILE, "w") as f: 
         json.dump(save_data, f)
     print("✅ 無限區塊存檔成功！")
 
 def load_game():
-    global active_chunks, saved_chunks, covered_blocks, player_abs_px, player_py, WORLD_SEED, hp, hunger, player_level, player_xp, money, inventory, equipped_armor, enchanted_item_ids, crafting_grid, crafting_table_grid, furnace_slots, furnace_progress, cursor_item, planted_crops, village_stats, world_time, mobs, animals, birds, planes, supply_planes, supply_crates, sunbirds, npcs, projectiles, structures, chests, dropped_items
+    global active_chunks, saved_chunks, dirty_chunks, covered_blocks, player_abs_px, player_py, WORLD_SEED, hp, hunger, player_level, player_xp, money, inventory, equipped_armor, enchanted_item_ids, crafting_grid, crafting_table_grid, furnace_slots, furnace_progress, cursor_item, planted_crops, village_stats, world_time, mobs, animals, birds, planes, supply_planes, supply_crates, sunbirds, npcs, projectiles, structures, chests, dropped_items
     if os.path.exists(SAVE_FILE):
         try:
             with open(SAVE_FILE, "r") as f: 
@@ -1727,7 +1960,17 @@ def load_game():
             structures = save_data.get("structures", [])
             chests = save_data.get("chests", {})
             dropped_items = save_data.get("dropped_items", [])
-            saved_chunks = {int(k): np.array(v, dtype=np.int8) for k, v in save_data["chunks"].items()}
+            saved_chunks = {}
+            dirty_chunks = set()
+            for key, value in save_data.get("chunks", {}).items():
+                chunk_idx = int(key)
+                chunk = np.array(value, dtype=np.int8)
+                if chunk.shape != (WORLD_ROWS, CHUNK_SIZE):
+                    continue
+                if chunk_matches_generated(chunk_idx, chunk):
+                    continue
+                saved_chunks[chunk_idx] = chunk
+                dirty_chunks.add(chunk_idx)
             active_chunks = {}
             return True
         except: 
@@ -1966,27 +2209,37 @@ def handle_slot_click(container, index, button):
     slot = container[index]
     if button == 1:
         if is_empty(cursor_item) and not is_empty(slot):
-            cursor_item["id"], cursor_item["count"] = slot["id"], slot["count"]
-            slot["id"], slot["count"] = 0, 0
+            cursor_item.clear()
+            cursor_item.update(copy_item(slot))
+            clear_item(slot)
         elif not is_empty(cursor_item) and is_empty(slot):
-            slot["id"], slot["count"] = cursor_item["id"], cursor_item["count"]
-            cursor_item["id"], cursor_item["count"] = 0, 0
+            slot.clear()
+            slot.update(copy_item(cursor_item))
+            clear_item(cursor_item)
         elif can_stack(slot, cursor_item) and slot["count"] < MAX_STACK:
             moved = min(MAX_STACK - slot["count"], cursor_item["count"])
             slot["count"] += moved
             cursor_item["count"] -= moved
             normalize_item(cursor_item)
         elif not is_empty(cursor_item):
-            slot["id"], cursor_item["id"] = cursor_item["id"], slot["id"]
-            slot["count"], cursor_item["count"] = cursor_item["count"], slot["count"]
+            old_slot = copy_item(slot)
+            old_cursor = copy_item(cursor_item)
+            slot.clear()
+            slot.update(old_cursor)
+            cursor_item.clear()
+            cursor_item.update(old_slot)
     elif button == 3:
         if is_empty(cursor_item) and not is_empty(slot):
             take = (slot["count"] + 1) // 2
-            cursor_item["id"], cursor_item["count"] = slot["id"], take
+            cursor_item.clear()
+            cursor_item.update(copy_item(slot))
+            cursor_item["count"] = take
             slot["count"] -= take
             normalize_item(slot)
         elif not is_empty(cursor_item) and is_empty(slot):
-            slot["id"], slot["count"] = cursor_item["id"], 1
+            slot.clear()
+            slot.update(copy_item(cursor_item))
+            slot["count"] = 1
             cursor_item["count"] -= 1
             normalize_item(cursor_item)
         elif can_stack(slot, cursor_item) and slot["count"] < MAX_STACK:
@@ -1994,8 +2247,12 @@ def handle_slot_click(container, index, button):
             cursor_item["count"] -= 1
             normalize_item(cursor_item)
         elif not is_empty(cursor_item):
-            slot["id"], cursor_item["id"] = cursor_item["id"], slot["id"]
-            slot["count"], cursor_item["count"] = cursor_item["count"], slot["count"]
+            old_slot = copy_item(slot)
+            old_cursor = copy_item(cursor_item)
+            slot.clear()
+            slot.update(old_cursor)
+            cursor_item.clear()
+            cursor_item.update(old_slot)
 
     check_crafting_recipes()
     if button in (1, 3):
@@ -2079,9 +2336,12 @@ while running:
     for event in pygame.event.get():
         if event.type == pygame.QUIT: 
             running = False
+        elif event.type == pygame.MOUSEWHEEL and current_state == render.STATE_GAME:
+            selected_slot = HOTBAR_START + ((selected_slot - HOTBAR_START - event.y) % HOTBAR_SIZE)
+            play_sound("click")
         elif event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
-                if current_state in (render.STATE_INVENTORY, render.STATE_CRAFTING_TABLE, render.STATE_FURNACE):
+                if current_state in (render.STATE_INVENTORY, render.STATE_CRAFTING_TABLE, render.STATE_FURNACE, render.STATE_CHEST):
                     close_inventory()
                     current_state = render.STATE_GAME
                     play_sound("close")
@@ -2096,7 +2356,7 @@ while running:
                 if current_state == render.STATE_GAME:
                     current_state = render.STATE_INVENTORY
                     play_sound("open")
-                elif current_state in (render.STATE_INVENTORY, render.STATE_CRAFTING_TABLE, render.STATE_FURNACE):
+                elif current_state in (render.STATE_INVENTORY, render.STATE_CRAFTING_TABLE, render.STATE_FURNACE, render.STATE_CHEST):
                     close_inventory()
                     current_state = render.STATE_GAME
                     play_sound("close")
@@ -2106,6 +2366,8 @@ while running:
                     play_sound("close")
             elif pygame.K_1 <= event.key <= pygame.K_9: 
                 selected_slot = HOTBAR_START + (event.key - pygame.K_1)
+            elif event.key == pygame.K_q and current_state == render.STATE_GAME:
+                drop_selected_item()
             elif event.key == pygame.K_w:
                 if is_grounded: 
                     vel_y = JUMP_FORCE
@@ -2160,6 +2422,15 @@ while running:
                 if slot_idx is not None:
                     handle_slot_click(inventory, slot_idx, event.button)
 
+        elif event.type == pygame.MOUSEBUTTONDOWN and current_state == render.STATE_CHEST:
+            chest_idx = render.get_chest_slot_at(mouse_x, mouse_y)
+            if chest_idx is not None:
+                handle_slot_click(open_chest_slots, chest_idx, event.button)
+            else:
+                slot_idx = render.get_inventory_slot_at(mouse_x, mouse_y)
+                if slot_idx is not None:
+                    handle_slot_click(inventory, slot_idx, event.button)
+
         elif event.type == pygame.MOUSEBUTTONDOWN and current_state == render.STATE_TRADER:
             if event.button == 1:
                 trade_idx = render.get_trader_trade_at(mouse_x, mouse_y, len(TRADER_TRADES))
@@ -2179,9 +2450,9 @@ while running:
                 else:
                     target_animal_idx = find_animal_at_world(screen_pixel_start_x + mouse_x, screen_pixel_start_y + mouse_y)
                     if target_animal_idx is not None and can_attack_animal(animals[target_animal_idx]):
-                        animal = animals.pop(target_animal_idx)
-                        drop_item_stack(get_animal_food_drop(animal.get("type", "cow")), animal["x"], animal["y"])
-                        play_sound("break")
+                        damage_animal(target_animal_idx, get_attack_damage(), player_abs_px + render.TILE_SIZE / 2, player_py + render.TILE_SIZE / 2)
+                        if get_max_durability(get_selected_item_id()):
+                            damage_selected_item(1)
                         handled_attack = True
                 if not handled_attack and can_mine_block(target_abs_block_x, target_block_y):
                     is_mining = True
@@ -2196,7 +2467,7 @@ while running:
                     trader_message = "Spend money, XP, or minerals for gear."
                     play_sound("open")
                     continue
-                if target_block == 45 and loot_chest(target_abs_block_x, target_block_y):
+                if target_block == 45 and open_chest_storage(target_abs_block_x, target_block_y):
                     continue
                 if target_block == 4:
                     current_state = render.STATE_CRAFTING_TABLE
@@ -2321,17 +2592,21 @@ while running:
                 bid = int(get_block_at(mine_target_abs_x, mine_target_abs_y))
                 is_mining = False
                 drop_id = BLOCK_DROPS.get(bid, bid)
-                if bid not in (0, 7) and inventory_has_room({"id": drop_id, "count": 1}):
+                if bid not in (0, 7):
                     restore_block = get_break_replacement_block(mine_target_abs_x, mine_target_abs_y)
                     set_block_at(mine_target_abs_x, mine_target_abs_y, restore_block)
-                    add_to_inventory({"id": drop_id, "count": 1})
+                    drop_x = mine_target_abs_x * render.TILE_SIZE + render.TILE_SIZE / 2
+                    drop_y = mine_target_abs_y * render.TILE_SIZE + render.TILE_SIZE / 2
+                    drop_item_stack({"id": drop_id, "count": 1}, drop_x, drop_y)
+                    if bid == 45:
+                        drop_chest_contents(mine_target_abs_x, mine_target_abs_y)
                     if bid in (1, 9) and random.random() < 0.35:
-                        add_to_inventory({"id": 75, "count": 1})
+                        drop_item_stack({"id": 75, "count": 1}, drop_x, drop_y)
                     if bid == 78:
                         crop_key = block_key(mine_target_abs_x, mine_target_abs_y)
                         crop = planted_crops.pop(crop_key, {"stage": 3})
                         if crop.get("stage", 0) >= 3:
-                            add_to_inventory({"id": 75, "count": random.randint(0, 2)})
+                            drop_item_stack({"id": 75, "count": random.randint(0, 2)}, drop_x, drop_y)
                     if get_max_durability(get_selected_item_id()):
                         damage_selected_item(1)
                     play_sound("break")
@@ -2359,11 +2634,7 @@ while running:
             play_sound("swim")
             last_swim_frame = frame_count
 
-        # 記憶體優化：釋放過遠的區塊
-        current_chunk_idx, _ = get_chunk_and_local(player_block_center_x)
-        for k in list(active_chunks.keys()):
-            if abs(k - current_chunk_idx) > 6: 
-                del active_chunks[k]
+        cleanup_runtime_resources()
 
     # 3. 轉發給 OpenCV 渲染
     p_data = [player_abs_px, player_py, vel_x if current_state == render.STATE_GAME else 0, is_grounded, facing_right, is_swimming]
@@ -2371,7 +2642,8 @@ while running:
     
     final_canvas = render.draw_game_scene(sky_color, visible_world, p_data, m_data, particles, frame_count, subpixel_offset_x, subpixel_offset_y, target_data, mobs, animals, birds, dropped_items, planes, sunbirds, npcs, projectiles, supply_planes, supply_crates)
     render.draw_hud(final_canvas, hp, hunger, inventory, selected_slot, player_level, player_xp, xp_to_next_level(player_level), money)
-    render.draw_minimap(final_canvas, visible_world, player_block_center_x, int(player_py // render.TILE_SIZE), mobs, animals, npcs, village_stats)
+    player_block_y = int(player_py // render.TILE_SIZE)
+    render.draw_minimap(final_canvas, visible_world, player_block_center_x, player_block_y, mobs, animals, npcs, village_stats, display_world_y(player_block_y))
     cv2.putText(final_canvas, ("Night" if is_night() else "Day") + f" {world_time // 1000:02d}", (20, 115), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
     held_item = inventory[selected_slot]
     if held_item["id"] != 0:
@@ -2402,11 +2674,12 @@ while running:
     elif current_state == render.STATE_FURNACE:
         update_furnace()
         final_canvas = render.draw_furnace_screen(final_canvas, inventory, furnace_slots, furnace_progress, mouse_x, mouse_y, cursor_item, ITEM_NAMES, TOOL_SPEEDS, WEAPON_DAMAGE, PLACEABLE_BLOCKS)
+    elif current_state == render.STATE_CHEST:
+        final_canvas = render.draw_chest_screen(final_canvas, inventory, open_chest_slots, mouse_x, mouse_y, cursor_item, ITEM_NAMES, TOOL_SPEEDS, WEAPON_DAMAGE, PLACEABLE_BLOCKS)
 
     # 4. 刷入 Pygame 視窗
     rgb_canvas = cv2.cvtColor(final_canvas, cv2.COLOR_BGR2RGB)
-    pygame_surface = pygame.surfarray.make_surface(np.transpose(rgb_canvas, (1, 0, 2)))
-    screen.blit(pygame_surface, (0, 0))
+    pygame.surfarray.blit_array(screen, np.transpose(rgb_canvas, (1, 0, 2)))
     pygame.display.flip()
 
 close_inventory()
