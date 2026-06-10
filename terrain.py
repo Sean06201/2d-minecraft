@@ -25,18 +25,108 @@ def generate_chunk(rows, chunk_cols, offset_x, seed):
         chunk_ptr = chunk.ctypes.data_as(ctypes.c_char_p)
         _terrain_engine.generate_chunk_c(chunk_ptr, rows, chunk_cols, offset_x, seed)
     else:
-        base_height = rows // 2
-        for local_x in range(chunk_cols):
-            absolute_x = offset_x + local_x
-            surface_y = base_height + int(math.sin((absolute_x + seed) * 0.09) * 4)
-            surface_y = max(2, min(rows - 3, surface_y))
-            top_block = 6 if math.sin((absolute_x + seed) * 0.025) < -0.35 else 1
-            mid_block = 6 if top_block == 6 else 2
-            chunk[surface_y, local_x] = top_block
-            chunk[surface_y + 1:min(surface_y + 4, rows), local_x] = mid_block
-            chunk[min(surface_y + 4, rows):rows, local_x] = 3
+        generate_python_biome_chunk(chunk, rows, chunk_cols, offset_x, seed)
     add_caves_and_ores(chunk, rows, chunk_cols, offset_x, seed)
     return chunk
+
+def simple_noise_1d(x, seed):
+    n = int(x) + seed * 57
+    n = (n << 13) ^ n
+    return 1.0 - ((n * (n * n * 15731 + 789221) + 1376312589) & 0x7fffffff) / 1073741824.0
+
+def smooth_interpolate(a, b, x):
+    f = (1 - math.cos(x * math.pi)) * 0.5
+    return a * (1 - f) + b * f
+
+def terrain_noise_1d(x, seed):
+    integer_x = math.floor(x)
+    fractional_x = x - integer_x
+    return smooth_interpolate(simple_noise_1d(integer_x, seed), simple_noise_1d(integer_x + 1, seed), fractional_x)
+
+def octave_noise_1d(x, seed, base_freq, base_amp, octaves):
+    value = 0.0
+    amp = base_amp
+    freq = base_freq
+    max_amp = 0.0
+    for octave in range(octaves):
+        value += terrain_noise_1d(x * freq, seed + octave * 31) * amp
+        max_amp += amp
+        amp *= 0.5
+        freq *= 2.0
+    return 0.0 if max_amp == 0 else value / max_amp
+
+def get_column_biome(abs_block_x, seed):
+    continental = octave_noise_1d(abs_block_x + seed * 310, seed + 17, 0.0065, 1.0, 3)
+    temperature = octave_noise_1d(abs_block_x + seed * 200, seed + 1, 0.010, 1.0, 3)
+    moisture = octave_noise_1d(abs_block_x - seed * 150, seed + 29, 0.012, 1.0, 3)
+    if continental < -0.42:
+        return "deep_ocean"
+    if continental < -0.22:
+        return "ocean"
+    if continental < -0.12:
+        return "beach"
+    if temperature > 0.05 and moisture < -0.08:
+        return "desert"
+    if temperature > 0.25 and moisture > 0.12:
+        return "jungle"
+    if moisture > -0.05:
+        return "forest"
+    return "plains"
+
+def generate_python_biome_chunk(chunk, rows, chunk_cols, offset_x, seed):
+    base_height = rows // 2
+    sea_level = base_height + 4
+    for local_x in range(chunk_cols):
+        absolute_x = offset_x + local_x
+        biome = get_column_biome(absolute_x, seed)
+        elevation = octave_noise_1d(absolute_x + seed * 100, seed, 0.035, 6.0, 4)
+        surface_y = base_height + int(elevation * 9.0)
+        top_block, mid_block = 1, 2
+
+        if biome == "deep_ocean":
+            surface_y = sea_level + 10 + int(elevation * 3.0)
+            top_block, mid_block = 6, 6
+        elif biome == "ocean":
+            surface_y = sea_level + 4 + int(elevation * 4.0)
+            top_block, mid_block = 6, 6
+        elif biome == "beach":
+            surface_y = sea_level - 1 + int(elevation * 2.0)
+            top_block, mid_block = 6, 6
+        elif biome == "desert":
+            surface_y += 1
+            top_block, mid_block = 6, 6
+        elif biome == "jungle":
+            surface_y -= 2
+        elif biome == "forest":
+            surface_y -= 1
+
+        surface_y = max(2, min(rows - 8, surface_y))
+        chunk[surface_y, local_x] = top_block
+        chunk[surface_y + 1:min(surface_y + 4, rows), local_x] = mid_block
+        chunk[min(surface_y + 4, rows):rows, local_x] = 3
+
+        if biome in ("deep_ocean", "ocean"):
+            for y in range(surface_y - 1, sea_level - 1, -1):
+                if y > 0:
+                    chunk[y, local_x] = 7
+
+        if biome not in ("deep_ocean", "ocean", "beach", "desert") and chunk[surface_y, local_x] == 1:
+            tree_roll = cave_noise(absolute_x, surface_y, seed)
+            threshold = 0.72 if biome == "jungle" else (0.82 if biome == "forest" else 0.96)
+            if tree_roll > threshold:
+                tree_height = 7 + int(cave_noise(absolute_x, 1, seed) > 0.5) * 2 if biome == "jungle" else (5 if biome == "forest" else 4)
+                for ty in range(1, tree_height + 1):
+                    if surface_y - ty >= 0:
+                        chunk[surface_y - ty, local_x] = 8
+                leaf_y = surface_y - tree_height
+                if leaf_y >= 2:
+                    leaf_radius = 3 if biome == "jungle" else 2
+                    for ly in range(leaf_y - 2, leaf_y + 2):
+                        if ly < 0 or ly >= rows:
+                            continue
+                        for lx in range(local_x - leaf_radius, local_x + leaf_radius + 1):
+                            if 0 <= lx < chunk_cols and chunk[ly, lx] == 0:
+                                chunk[ly, lx] = 9
 
 def cave_noise(x, y, seed):
     n = x * 734287 + y * 912271 + seed * 1361

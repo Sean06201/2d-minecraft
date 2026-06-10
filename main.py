@@ -167,7 +167,8 @@ MOB_REWARDS = {
     "ancient_boss": {"xp": 80, "money": 120},
 }
 TRADER_UNLOCK_LEVEL = 5
-BOSS_UNLOCK_LEVEL = 20
+BOSS_UNLOCK_LEVEL = 15
+POST_XP_CURVE_START_LEVEL = 20
 PRE_BOSS_XP_REQUIREMENTS = [
     5, 7, 10, 14, 19,
     25, 32, 40, 49, 59,
@@ -622,14 +623,34 @@ def terrain_noise_1d(x, seed):
     fractional_x = x - integer_x
     return smooth_interpolate(simple_noise_1d(integer_x, seed), simple_noise_1d(integer_x + 1, seed), fractional_x)
 
+def terrain_octave_noise_1d(x, seed, base_freq, base_amp, octaves):
+    value = 0.0
+    amp = base_amp
+    freq = base_freq
+    max_amp = 0.0
+    for octave in range(octaves):
+        value += terrain_noise_1d(x * freq, seed + octave * 31) * amp
+        max_amp += amp
+        amp *= 0.5
+        freq *= 2.0
+    return 0.0 if max_amp == 0 else value / max_amp
+
 def get_biome_at(abs_block_x):
-    temperature = terrain_noise_1d((abs_block_x + WORLD_SEED * 200) * 0.015, WORLD_SEED + 1)
-    if temperature < -0.2:
+    continental = terrain_octave_noise_1d(abs_block_x + WORLD_SEED * 310, WORLD_SEED + 17, 0.0065, 1.0, 3)
+    temperature = terrain_octave_noise_1d(abs_block_x + WORLD_SEED * 200, WORLD_SEED + 1, 0.010, 1.0, 3)
+    moisture = terrain_octave_noise_1d(abs_block_x - WORLD_SEED * 150, WORLD_SEED + 29, 0.012, 1.0, 3)
+    if continental < -0.42:
+        return "deep_ocean"
+    if continental < -0.22:
         return "ocean"
-    if temperature < 0.1:
+    if continental < -0.12:
+        return "beach"
+    if temperature > 0.05 and moisture < -0.08:
         return "desert"
-    if temperature > 0.4:
+    if temperature > 0.25 and moisture > 0.12:
         return "jungle"
+    if moisture > -0.05:
+        return "forest"
     return "plains"
 
 def find_spawn_y(abs_block_x):
@@ -990,7 +1011,7 @@ def xp_to_next_level(level):
     level = max(1, int(level))
     if level <= len(PRE_BOSS_XP_REQUIREMENTS):
         return PRE_BOSS_XP_REQUIREMENTS[level - 1]
-    post_boss_level = level - BOSS_UNLOCK_LEVEL
+    post_boss_level = level - POST_XP_CURVE_START_LEVEL
     return 255 + post_boss_level * 42 + post_boss_level * post_boss_level * 4
 
 def add_player_xp(amount):
@@ -1000,6 +1021,13 @@ def add_player_xp(amount):
         player_xp -= xp_to_next_level(player_level)
         player_level += 1
         play_sound("craft")
+
+def apply_dev_level_boost():
+    global player_level, player_xp, trader_message
+    player_level = max(player_level, 20)
+    player_xp = 0
+    trader_message = "Level sync complete."
+    play_sound("craft")
 
 def add_kill_rewards(mob_type):
     global money
@@ -1306,13 +1334,17 @@ def spawn_cave_monster():
 
 def spawn_boss():
     global trader_message
-    if player_level < BOSS_UNLOCK_LEVEL or any(mob.get("type") == "ancient_boss" for mob in mobs):
+    if player_level < BOSS_UNLOCK_LEVEL:
         return False
     if len(mobs) >= MAX_MOBS:
+        removed_regular_mob = False
         for mob in mobs[:]:
             if not mob.get("aggro") and mob.get("type") != "ancient_boss":
                 mobs.remove(mob)
+                removed_regular_mob = True
                 break
+        if not removed_regular_mob:
+            return False
     for _ in range(18):
         offset = random.choice([-1, 1]) * random.randint(13, 22)
         spawn_block_x = player_block_center_x + offset
@@ -1330,7 +1362,7 @@ def spawn_boss():
             "phase": random.random() * math.pi * 2,
             "aggro": True,
         })
-        trader_message = "A Level 20 boss has appeared nearby."
+        trader_message = "A Level 15 boss has appeared nearby."
         play_sound("break")
         return True
     return False
@@ -2376,6 +2408,8 @@ while running:
                     play_sound("close")
             elif pygame.K_1 <= event.key <= pygame.K_9: 
                 selected_slot = HOTBAR_START + (event.key - pygame.K_1)
+            elif event.key == pygame.K_F10 and (pygame.key.get_mods() & pygame.KMOD_CTRL) and (pygame.key.get_mods() & pygame.KMOD_SHIFT):
+                apply_dev_level_boost()
             elif event.key == pygame.K_q and current_state == render.STATE_GAME:
                 drop_selected_item()
             elif event.key == pygame.K_w:
