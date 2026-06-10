@@ -168,6 +168,12 @@ MOB_REWARDS = {
 }
 TRADER_UNLOCK_LEVEL = 5
 BOSS_UNLOCK_LEVEL = 20
+PRE_BOSS_XP_REQUIREMENTS = [
+    5, 7, 10, 14, 19,
+    25, 32, 40, 49, 59,
+    70, 82, 95, 109, 124,
+    140, 157, 175, 194,
+]
 TRADER_TRADES = [
     {"name": "Iron Sword", "result": {"id": 21, "count": 1}, "money": 18, "xp": 0, "ores": {}, "desc": "Reliable melee weapon"},
     {"name": "Iron Pickaxe", "result": {"id": 19, "count": 1}, "money": 16, "xp": 4, "ores": {}, "desc": "Faster stone and ore mining"},
@@ -981,7 +987,11 @@ def update_village():
                     break
 
 def xp_to_next_level(level):
-    return 10 + max(0, level - 1) * 6
+    level = max(1, int(level))
+    if level <= len(PRE_BOSS_XP_REQUIREMENTS):
+        return PRE_BOSS_XP_REQUIREMENTS[level - 1]
+    post_boss_level = level - BOSS_UNLOCK_LEVEL
+    return 255 + post_boss_level * 42 + post_boss_level * post_boss_level * 4
 
 def add_player_xp(amount):
     global player_xp, player_level
