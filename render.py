@@ -949,7 +949,7 @@ def get_boss_visuals(tier):
     return visuals
 
 # --- 【無限世界核心修復】現在 draw_game_scene 只負責渲染裁剪後的 visible_world 矩陣 ---
-def draw_game_scene(sky_color, visible_world, player_data, mining_data, particles, frame_count, camera_subpixel_x, camera_subpixel_y, target_data=None, mobs=None, animals=None, birds=None, dropped_items=None, planes=None, sunbirds=None, npcs=None, projectiles=None, supply_planes=None, supply_crates=None):
+def draw_game_scene(sky_color, visible_world, player_data, mining_data, particles, frame_count, camera_subpixel_x, camera_subpixel_y, target_data=None, mobs=None, animals=None, birds=None, dropped_items=None, planes=None, sunbirds=None, npcs=None, projectiles=None, supply_planes=None, supply_crates=None, ufos=None, teleport_effect=None):
     bgr_sky = (sky_color[2], sky_color[1], sky_color[0])
     canvas = np.full((HEIGHT, WIDTH, 3), bgr_sky, dtype=np.uint8)
     
@@ -1102,6 +1102,41 @@ def draw_game_scene(sky_color, visible_world, player_data, mining_data, particle
                 cv2.putText(canvas, "SUP", (spx+8, spy+47), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (255,255,220), 1)
             if not plane.get("dropped"):
                 cv2.circle(canvas, (spx+38, spy+36), 3, (40, 240, 255), -1)
+
+    for ufo in ufos or []:
+        spx = int(ufo["x"] - (ppx - screen_px))
+        spy = int(ufo["y"] - (ppy - screen_py))
+        if -110 <= spx < WIDTH + 110 and -80 <= spy < HEIGHT:
+            phase = ufo.get("phase", 0.0)
+            wobble = int(np.sin(frame_count * 0.12 + phase) * 4)
+            beam_power = min(1.0, ufo.get("abduct_timer", 0) / 120.0)
+            if ufo.get("abduct_timer", 0) > 0:
+                beam = np.zeros_like(canvas)
+                spread = int(28 + beam_power * 32)
+                pts = np.array([
+                    [spx - 34, spy + 22],
+                    [spx + 34, spy + 22],
+                    [center_x + spread, screen_py + 44],
+                    [center_x - spread, screen_py + 44],
+                ], dtype=np.int32)
+                cv2.fillConvexPoly(beam, pts, (40, 255, 110))
+                cv2.addWeighted(beam, 0.18 + beam_power * 0.22, canvas, 1.0, 0, canvas)
+                for r in range(14, spread + 8, 18):
+                    ring_y = screen_py + 38 - int((frame_count * 2 + r) % 42)
+                    cv2.ellipse(canvas, (center_x, ring_y), (r, max(3, r // 5)), 0, 0, 360, (80, 255, 140), 1)
+                cv2.line(canvas, (spx, spy+22), (center_x, screen_py+18), (120, 255, 170), 2)
+
+            cv2.ellipse(canvas, (spx, spy+16+wobble), (42, 13), 0, 0, 360, (90, 95, 105), -1)
+            cv2.ellipse(canvas, (spx, spy+10+wobble), (24, 15), 0, 180, 360, (120, 230, 200), -1)
+            cv2.ellipse(canvas, (spx, spy+18+wobble), (50, 8), 0, 0, 360, (42, 50, 58), 2)
+            for lx in (-26, 0, 26):
+                glow = 160 + int(70 * np.sin(frame_count * 0.18 + phase + lx))
+                cv2.circle(canvas, (spx+lx, spy+20+wobble), 4, (40, max(150, glow), 80), -1)
+            max_hp = max(1, ufo.get("max_hp", 34))
+            hp_w = max(0, min(72, int(ufo.get("hp", 0) / max_hp * 72)))
+            cv2.rectangle(canvas, (spx-38, spy-16), (spx+38, spy-9), (12, 18, 16), -1)
+            cv2.rectangle(canvas, (spx-36, spy-15), (spx-36+hp_w, spy-10), (60, 240, 110), -1)
+            cv2.putText(canvas, "UFO", (spx-16, spy-22), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (100,255,150), 1)
 
     for crate in supply_crates or []:
         spx = int(crate["x"] - (ppx - screen_px))
@@ -1288,5 +1323,23 @@ def draw_game_scene(sky_color, visible_world, player_data, mining_data, particle
         spy = int(p[1] - (ppy - screen_py))
         if 0 <= spx < WIDTH and 0 <= spy < HEIGHT: 
             cv2.rectangle(canvas, (spx, spy), (spx + p[6], spy + p[6]), p[5], -1)
+
+    effect = teleport_effect or {}
+    timer = int(effect.get("timer", 0))
+    duration = max(1, int(effect.get("duration", 1)))
+    if timer > 0:
+        intensity = timer / duration
+        overlay = np.zeros_like(canvas)
+        overlay[:] = (20, 130, 55)
+        cv2.addWeighted(overlay, 0.28 * intensity, canvas, 1.0, 0, canvas)
+        pulse = int((1.0 - intensity) * 90)
+        for r in range(36 + pulse, 360, 54):
+            cv2.ellipse(canvas, (center_x, screen_py+20), (r, max(8, r // 5)), 0, 0, 360, (80, 255, 145), 1)
+        for i in range(18):
+            angle = frame_count * 0.045 + i * np.pi / 9
+            x2 = int(center_x + np.cos(angle) * (120 + 280 * intensity))
+            y2 = int(screen_py + 20 + np.sin(angle) * (50 + 150 * intensity))
+            cv2.line(canvas, (center_x, screen_py+20), (x2, y2), (70, 255, 120), 1)
+        cv2.putText(canvas, "WORLD SHIFT", (WIDTH//2 - 115, 92), cv2.FONT_HERSHEY_SIMPLEX, 0.85, (120,255,170), 2)
             
     return canvas

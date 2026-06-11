@@ -26,6 +26,7 @@ MAX_BIRDS = 8
 MAX_PLANES = 3
 MAX_SUPPLY_PLANES = 2
 MAX_SUPPLY_CRATES = 4
+MAX_UFOS = 1
 MAX_SUNBIRDS = 4
 MAX_NPCS = 8
 MAX_PROJECTILES = 40
@@ -46,6 +47,10 @@ ANIMAL_SPAWN_INTERVAL = 360
 BIRD_SPAWN_INTERVAL = 210
 PLANE_SPAWN_INTERVAL = 900
 SUPPLY_PLANE_SPAWN_INTERVAL = 3000
+UFO_SPAWN_INTERVAL = 4200
+UFO_UNLOCK_LEVEL = 15
+UFO_ABDUCTION_FRAMES = 210
+UFO_TELEPORT_FLASH_FRAMES = 120
 SUNBIRD_SPAWN_INTERVAL = 520
 HOUSE_SPAWN_INTERVAL = 3000
 WANDER_NPC_SPAWN_INTERVAL = 700
@@ -306,6 +311,7 @@ birds = []
 planes = []
 supply_planes = []
 supply_crates = []
+ufos = []
 sunbirds = []
 npcs = []
 projectiles = []
@@ -322,6 +328,7 @@ last_animal_spawn_frame = 0
 last_bird_spawn_frame = 0
 last_plane_spawn_frame = 0
 last_supply_plane_spawn_frame = 0
+last_ufo_spawn_frame = 0
 last_sunbird_spawn_frame = 0
 last_house_spawn_frame = 0
 last_wander_npc_spawn_frame = 0
@@ -330,6 +337,7 @@ last_player_damage_frame = 0
 last_resource_cleanup_frame = 0
 boss_spawn_count = 0
 trader_message = ""
+teleport_effect = {"timer": 0, "duration": 0}
 
 DIAMOND_ARMOR_SLOTS = {58: "helmet", 59: "chestplate", 60: "leggings", 61: "boots"}
 DIAMOND_ARMOR_DEFENSE = {58: 1, 59: 3, 60: 2, 61: 1}
@@ -515,6 +523,7 @@ def cleanup_runtime_resources(force=False):
     trim_empty_chests(MAX_PERSISTENT_CHESTS)
     trim_spatial_dict(covered_blocks, MAX_COVERED_BLOCKS)
     trim_spatial_dict(planted_crops, MAX_PLANTED_CROPS)
+    del ufos[MAX_UFOS:]
     del projectiles[MAX_PROJECTILES:]
     del dropped_items[MAX_DROPPED_ITEMS:]
 
@@ -588,6 +597,17 @@ def get_current_mine_time(block_id):
         speed = max(speed, 2.5)
     hardness = BLOCK_HARDNESS.get(int(block_id), 1.0)
     return max(5, int(MINE_MAX_TIME * hardness / speed))
+
+def start_mining_block(abs_block_x, block_y, block_id):
+    global is_mining, mine_target_abs_x, mine_target_abs_y, mining_progress, mining_required_time
+    if not can_mine_block(abs_block_x, block_y):
+        return False
+    is_mining = True
+    mine_target_abs_x, mine_target_abs_y = abs_block_x, block_y
+    mining_progress = 0
+    mining_required_time = get_current_mine_time(block_id)
+    play_sound("click")
+    return True
 
 def get_attack_damage():
     selected_id = get_selected_item_id()
@@ -710,6 +730,22 @@ def spawn_blood_particles(x, y, source_x=None, source_y=None):
         ])
     if len(particles) > 180:
         del particles[:len(particles) - 180]
+
+def spawn_teleport_particles(x, y, amount=28):
+    for _ in range(amount):
+        angle = random.uniform(0, math.pi * 2)
+        radius = random.uniform(8, 42)
+        particles.append([
+            x + math.cos(angle) * radius,
+            y + random.uniform(-28, 22),
+            math.cos(angle) * random.uniform(-0.8, 0.8),
+            random.uniform(-3.8, -1.0),
+            random.randint(24, 46),
+            (random.randint(40, 90), random.randint(200, 255), random.randint(80, 150)),
+            random.randint(3, 7),
+        ])
+    if len(particles) > 220:
+        del particles[:len(particles) - 220]
 
 def update_particles():
     for p in particles[:]:
@@ -1269,6 +1305,12 @@ def update_projectiles():
             projectiles.remove(shot)
             continue
 
+        hit_ufo_idx = find_ufo_at_world(shot["x"], shot["y"])
+        if hit_ufo_idx is not None:
+            damage_ufo(hit_ufo_idx, shot["damage"])
+            projectiles.remove(shot)
+            continue
+
         hit_idx = find_mob_at_world(shot["x"], shot["y"])
         if hit_idx is not None:
             damage_mob(hit_idx, shot["damage"], shot["x"] - shot.get("vx", 0.0) * 2, shot["y"] - shot.get("vy", 0.0) * 2, 4.5)
@@ -1458,6 +1500,78 @@ def spawn_supply_plane():
         "dropped": False,
         "phase": random.uniform(0, math.pi * 2),
     })
+
+def spawn_ufo():
+    if player_level < UFO_UNLOCK_LEVEL or len(ufos) >= MAX_UFOS or random.random() > 0.65:
+        return
+    direction = random.choice([-1, 1])
+    ufos.append({
+        "x": float(player_abs_px + direction * random.randint(18, 28) * render.TILE_SIZE),
+        "y": float(max(16, player_py - random.randint(8, 12) * render.TILE_SIZE)),
+        "vx": float(-direction * random.uniform(0.7, 1.2)),
+        "hp": 34,
+        "max_hp": 34,
+        "phase": random.uniform(0, math.pi * 2),
+        "abduct_timer": 0,
+    })
+    play_sound("open")
+
+def teleport_to_new_world():
+    global active_chunks, saved_chunks, dirty_chunks, covered_blocks, WORLD_SEED, player_abs_px, player_py, vel_x, vel_y, player_xp, world_time, current_state, is_mining, open_chest_key, open_chest_slots, planted_crops, village_stats
+
+    close_inventory()
+    WORLD_SEED = random.randint(0, 500000)
+    active_chunks = {}
+    saved_chunks = {}
+    dirty_chunks = set()
+    covered_blocks = {}
+    planted_crops = {}
+    village_stats = {"houses": 0, "supplies": 0, "reputation": 0}
+    mobs.clear()
+    animals.clear()
+    birds.clear()
+    planes.clear()
+    supply_planes.clear()
+    supply_crates.clear()
+    sunbirds.clear()
+    npcs.clear()
+    projectiles.clear()
+    structures.clear()
+    chests.clear()
+    dropped_items.clear()
+    ufos.clear()
+    player_xp = 0
+    world_time = random.randint(5000, 9000)
+    player_abs_px, player_py = find_safe_player_spawn()
+    vel_x, vel_y = 0.0, 0.0
+    is_mining = False
+    open_chest_key = None
+    open_chest_slots = [{"id": 0, "count": 0} for _ in range(18)]
+    current_state = render.STATE_GAME
+    teleport_effect["timer"] = UFO_TELEPORT_FLASH_FRAMES
+    teleport_effect["duration"] = UFO_TELEPORT_FLASH_FRAMES
+    spawn_teleport_particles(player_abs_px + render.TILE_SIZE / 2, player_py + render.TILE_SIZE / 2, 70)
+    play_sound("craft")
+
+def damage_ufo(index, damage):
+    if index < 0 or index >= len(ufos):
+        return
+    ufo = ufos[index]
+    ufo["hp"] -= damage
+    ufo["abduct_timer"] = max(0, ufo.get("abduct_timer", 0) - 28)
+    spawn_teleport_particles(ufo["x"], ufo["y"] + 14, 10)
+    if ufo["hp"] <= 0:
+        drop_item_stack({"id": 40, "count": random.randint(12, 24)}, ufo["x"], ufo["y"] + 20)
+        if random.random() < 0.45:
+            drop_item_stack({"id": 24, "count": 1}, ufo["x"], ufo["y"] + 20)
+        ufos.pop(index)
+        play_sound("break")
+
+def find_ufo_at_world(world_px, world_py):
+    for idx, ufo in enumerate(ufos):
+        if ufo["x"] - 42 <= world_px <= ufo["x"] + 42 and ufo["y"] - 16 <= world_py <= ufo["y"] + 38:
+            return idx
+    return None
 
 def spawn_sunbird():
     if len(sunbirds) >= MAX_SUNBIRDS:
@@ -1884,6 +1998,44 @@ def update_supply_planes():
         if abs(plane["x"] - player_abs_px) > render.TILE_SIZE * 44:
             supply_planes.remove(plane)
 
+def update_ufos():
+    global player_py, vel_y, trader_message
+    player_center_x = player_abs_px + render.TILE_SIZE / 2
+    player_center_y = player_py + render.TILE_SIZE / 2
+    for ufo in ufos[:]:
+        ufo["phase"] = ufo.get("phase", 0.0) + 0.11
+        dx = player_center_x - ufo["x"]
+        target_y = max(14, player_py - render.TILE_SIZE * 7.5)
+        chase_speed = 1.25 + min(0.55, player_level * 0.015)
+        ufo["vx"] = max(-chase_speed, min(chase_speed, ufo.get("vx", 0.0) + (0.035 if dx > 0 else -0.035)))
+        ufo["x"] += ufo["vx"]
+        ufo["y"] += (target_y - ufo["y"]) * 0.025
+
+        close_x = abs(dx) < render.TILE_SIZE * 1.8
+        close_y = abs((ufo["y"] + render.TILE_SIZE * 7.5) - player_py) < render.TILE_SIZE * 3.2
+        if close_x and close_y:
+            ufo["abduct_timer"] = ufo.get("abduct_timer", 0) + 1
+            if ufo["abduct_timer"] % 12 == 0:
+                spawn_teleport_particles(player_center_x, player_center_y, 8)
+            if current_state == render.STATE_GAME:
+                player_py -= 0.16
+                vel_y = min(vel_y, -0.35)
+            if ufo["abduct_timer"] == 1:
+                trader_message = "A UFO tractor beam is locking on. Shoot it down!"
+            if ufo["abduct_timer"] >= UFO_ABDUCTION_FRAMES:
+                teleport_to_new_world()
+                trader_message = "The UFO threw you into a new world. XP reset to 0."
+                return
+        else:
+            ufo["abduct_timer"] = max(0, ufo.get("abduct_timer", 0) - 2)
+
+        if abs(ufo["x"] - player_abs_px) > render.TILE_SIZE * 44:
+            ufos.remove(ufo)
+
+def update_teleport_effect():
+    if teleport_effect.get("timer", 0) > 0:
+        teleport_effect["timer"] -= 1
+
 def update_supply_crates():
     for crate in supply_crates[:]:
         crate["phase"] = crate.get("phase", 0.0) + 0.10
@@ -1991,7 +2143,7 @@ def save_game():
         "cursor_item": cursor_item, "covered_blocks": covered_blocks,
         "planted_crops": planted_crops, "village_stats": village_stats,
         "world_time": world_time, "mobs": mobs, "animals": animals,
-        "birds": [], "planes": [], "supply_planes": [],
+        "birds": [], "planes": [], "supply_planes": [], "ufos": [],
         "supply_crates": [], "sunbirds": [],
         "npcs": npcs, "projectiles": [], "structures": structures,
         "chests": chests, "dropped_items": dropped_items,
@@ -2003,7 +2155,7 @@ def save_game():
     print("✅ 無限區塊存檔成功！")
 
 def load_game():
-    global active_chunks, saved_chunks, dirty_chunks, covered_blocks, player_abs_px, player_py, WORLD_SEED, hp, hunger, player_level, player_xp, money, boss_spawn_count, inventory, equipped_armor, enchanted_item_ids, crafting_grid, crafting_table_grid, furnace_slots, furnace_progress, cursor_item, planted_crops, village_stats, world_time, mobs, animals, birds, planes, supply_planes, supply_crates, sunbirds, npcs, projectiles, structures, chests, dropped_items
+    global active_chunks, saved_chunks, dirty_chunks, covered_blocks, player_abs_px, player_py, WORLD_SEED, hp, hunger, player_level, player_xp, money, boss_spawn_count, inventory, equipped_armor, enchanted_item_ids, crafting_grid, crafting_table_grid, furnace_slots, furnace_progress, cursor_item, planted_crops, village_stats, world_time, mobs, animals, birds, planes, supply_planes, supply_crates, ufos, sunbirds, npcs, projectiles, structures, chests, dropped_items, teleport_effect
     if os.path.exists(SAVE_FILE):
         try:
             with open(SAVE_FILE, "r") as f: 
@@ -2032,12 +2184,14 @@ def load_game():
             planes = save_data.get("planes", [])
             supply_planes = save_data.get("supply_planes", [])
             supply_crates = save_data.get("supply_crates", [])
+            ufos = []
             sunbirds = save_data.get("sunbirds", [])
             npcs = save_data.get("npcs", [])
             projectiles = save_data.get("projectiles", [])
             structures = save_data.get("structures", [])
             chests = save_data.get("chests", {})
             dropped_items = save_data.get("dropped_items", [])
+            teleport_effect = {"timer": 0, "duration": 0}
             saved_chunks = {}
             dirty_chunks = set()
             for key, value in save_data.get("chunks", {}).items():
@@ -2355,12 +2509,14 @@ def update_world_systems(update_hunger_meter=False, is_sprinting_now=False):
     update_birds()
     update_planes()
     update_supply_planes()
+    update_ufos()
     update_supply_crates()
     update_sunbirds()
     update_npcs()
     update_projectiles()
     update_dropped_items()
     update_particles()
+    update_teleport_effect()
     handle_player_death()
     cleanup_runtime_resources()
 
@@ -2426,6 +2582,9 @@ while running:
         if frame_count - last_supply_plane_spawn_frame > SUPPLY_PLANE_SPAWN_INTERVAL:
             spawn_supply_plane()
             last_supply_plane_spawn_frame = frame_count
+        if player_level >= UFO_UNLOCK_LEVEL and frame_count - last_ufo_spawn_frame > UFO_SPAWN_INTERVAL:
+            spawn_ufo()
+            last_ufo_spawn_frame = frame_count
         if frame_count - last_sunbird_spawn_frame > SUNBIRD_SPAWN_INTERVAL:
             spawn_sunbird()
             last_sunbird_spawn_frame = frame_count
@@ -2564,12 +2723,8 @@ while running:
                         if get_max_durability(get_selected_item_id()):
                             damage_selected_item(1)
                         handled_attack = True
-                if not handled_attack and can_mine_block(target_abs_block_x, target_block_y):
-                    is_mining = True
-                    mine_target_abs_x, mine_target_abs_y = target_abs_block_x, target_block_y
-                    mining_progress = 0
-                    mining_required_time = get_current_mine_time(target_block)
-                    play_sound("click")
+                if not handled_attack:
+                    start_mining_block(target_abs_block_x, target_block_y, target_block)
             elif event.button == 3:
                 target_npc_idx = find_npc_at_world(screen_pixel_start_x + mouse_x, screen_pixel_start_y + mouse_y)
                 if target_npc_idx is not None and can_trade_with_npc(npcs[target_npc_idx]):
@@ -2646,9 +2801,16 @@ while running:
     # 2. 運動與物理
     if current_state == render.STATE_GAME:
         keys = pygame.key.get_pressed()
+        left_mouse_held = pygame.mouse.get_pressed(3)[0]
         is_sneaking = keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]
         is_sprinting = keys[pygame.K_LCTRL] or keys[pygame.K_RCTRL]
         is_swimming = in_water and is_sprinting
+        if not left_mouse_held and is_mining:
+            is_mining = False
+            mining_progress = 0
+        elif left_mouse_held and not is_mining and get_selected_item_id() not in GUN_STATS:
+            current_target_block = int(get_block_at(target_abs_block_x, target_block_y))
+            start_mining_block(target_abs_block_x, target_block_y, current_target_block)
         
         current_max_speed = SNEAK_SPEED if is_sneaking else (SPRINT_SPEED if is_sprinting and hunger > 0 else WALK_SPEED)
         if in_water: 
@@ -2739,7 +2901,7 @@ while running:
     p_data = [player_abs_px, player_py, vel_x if current_state == render.STATE_GAME else 0, is_grounded, facing_right, is_swimming]
     m_data = [is_mining, mine_target_abs_x - start_block_x, mine_target_abs_y - start_block_y, mining_progress, mining_required_time]
     
-    final_canvas = render.draw_game_scene(sky_color, visible_world, p_data, m_data, particles, frame_count, subpixel_offset_x, subpixel_offset_y, target_data, mobs, animals, birds, dropped_items, planes, sunbirds, npcs, projectiles, supply_planes, supply_crates)
+    final_canvas = render.draw_game_scene(sky_color, visible_world, p_data, m_data, particles, frame_count, subpixel_offset_x, subpixel_offset_y, target_data, mobs, animals, birds, dropped_items, planes, sunbirds, npcs, projectiles, supply_planes, supply_crates, ufos, teleport_effect)
     render.draw_hud(final_canvas, hp, hunger, inventory, selected_slot, player_level, player_xp, xp_to_next_level(player_level), money)
     player_block_y = int(player_py // render.TILE_SIZE)
     render.draw_minimap(final_canvas, visible_world, player_block_center_x, player_block_y, mobs, animals, npcs, village_stats, display_world_y(player_block_y))
